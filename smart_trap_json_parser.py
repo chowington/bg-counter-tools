@@ -5,6 +5,7 @@
 import sys
 import csv
 import json
+import pprint
 from datetime import datetime
 
 def main():
@@ -12,8 +13,8 @@ def main():
     
     out_name = 'interchange.out'
     
-    with open(out_name, 'w') as out_f:
-        out_csv = csv.writer(out_f)
+    with open(out_name, 'w') as out_file:
+        out_csv = csv.writer(out_file)
         out_csv.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
                           'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
                           'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
@@ -24,33 +25,46 @@ def main():
                 js = json.load(json_f)
                 total_captures = 0
                 good_captures = 0
-    
+
                 for trap_wrapper in js['traps']:
                     trap = trap_wrapper['Trap']
                     captures = trap_wrapper['Capture']
     
-                    if len(captures) == 0:
-                        print('Warning: 0 captures at file: {} - trap_id: {}'.format(filename, trap['id']))
-                        continue
-    
-                    else:
-                        total_captures += len(captures)
+                    if len(captures) != 0:
                         day_captures = []
+                        prev_timestamp = None
                         date = captures[0]['timestamp_start'][:10]
     
                         for capture in captures:
-                            curr_date = capture['timestamp_start'][:10]
-    
-                            if not curr_date == date:
-                                good_captures += write_collections(day_captures, out_csv)
-                                day_captures = []
-                                date = curr_date
+                            curr_timestamp = capture['timestamp_start']
+                            '''print([trap['id'], curr_timestamp, capture['latitude'], capture['longitude'], capture['isTrapExactLocation']])
+                            print([trap['id'], curr_timestamp, capture['trap_latitude'], capture['trap_longitude']])
+                            print()'''
 
-                            day_captures.append(capture)
+                            if curr_timestamp != prev_timestamp:
+                                total_captures += 1
+                                prev_timestamp = curr_timestamp
+                                curr_date = curr_timestamp[:10]
+
+                                if not curr_date == date:
+                                    good_captures += write_collections(day_captures, out_csv)
+                                    day_captures = []
+                                    date = curr_date
     
+                                day_captures.append({
+                                    'trap_id' : capture['trap_id'],
+                                    'timestamp_start' : capture['timestamp_start'],
+                                    'co2_status' : capture['co2_status'],
+                                    'medium' : capture['medium'],
+                                    'trap_latitude' : capture['trap_latitude'],
+                                    'trap_longitude' : capture['trap_longitude'],
+                                })
+
+                    else:
+                        print('Warning: 0 captures at file: {} - trap_id: {}'.format(filename, trap['id']))
+
                 print('End of file: {} - Total captures: {} - Good captures: {} - Tossed captures: {}'
                       .format(filename, total_captures, good_captures, total_captures - good_captures))
-
 
 def write_collections(captures, csv):
     collections = []
@@ -72,6 +86,9 @@ def write_collections(captures, csv):
             collections.append([capture])
 
     for collection in collections:
+        #print([collection[0]['trap_id'], collection[0]['timestamp_start'],
+        #       collection[0]['trap_latitude'], collection[0]['trap_longitude'], len(collection)])
+
         if len(collection) >= 92:
             mos_count = 0
             used_co2 = False
