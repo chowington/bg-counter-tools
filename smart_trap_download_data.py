@@ -195,30 +195,52 @@ def main(stdscr, args):
 
         i = 0
 
-        for trap_id, trap_wrapper in trap_data.items():
-            captures = trap_wrapper['Capture']
-            #print('trap_id: {} - Final captures: {}'.format(trap_id, len(captures)))
-    
-            # Don't write if we're skipping empty and there are no captures
-            if not (args.skip_empty and not captures):
-                if args.nested_directories:
-                    dir_path = './smart-trap-json/{}/{}'.format(api_key, trap_id)
-    
-                    if not os.path.exists(dir_path):
-                        os.makedirs(dir_path)
+        if args.split_traps:
+            for trap_id, trap_wrapper in trap_data.items():
+                #print('trap_id: {} - Final captures: {}'.format(trap_id, len(captures)))
 
-                    filename = '{}_{}_{}.json'.format(trap_id, start_time.isoformat(), end_time.isoformat())
-                    path = '{}/{}'.format(dir_path, filename)
-    
-                else:
-                    filename = '{}_{}'.format(args.output, i)
-                    path = './' + filename
-    
-                with open(path, 'w') as f:
-                    trap_obj = {'traps' : [trap_wrapper]}
-                    json.dump(trap_obj, f, indent=args.pretty_print)
+                # Don't write if we're skipping empty and there are no captures
+                if not (args.skip_empty and not trap_wrapper['Capture']):
+                    if args.nested_directories:
+                        dir_path = './smart-trap-json/{}/{}'.format(api_key, trap_id)
 
-                i += 1
+                        if not os.path.exists(dir_path):
+                            os.makedirs(dir_path)
+
+                        filename = '{}_{}_{}.json'.format(trap_id, start_time.isoformat(), end_time.isoformat())
+                        path = '{}/{}'.format(dir_path, filename)
+
+                    else:
+                        filename = '{}_{}'.format(args.output, i)
+                        path = './' + filename
+
+                    with open(path, 'w') as f:
+                        trap_obj = {'traps' : [trap_wrapper]}
+                        json.dump(trap_obj, f, indent=args.pretty_print)
+
+                    i += 1
+
+        else:
+            trap_obj = {'traps' : []}
+
+            for trap_wrapper in trap_data.values():
+                if not (args.skip_empty and not trap_wrapper['Capture']):
+                    trap_obj['traps'].append(trap_wrapper)
+
+            if args.nested_directories:
+                dir_path = './smart-trap-json/' + api_key
+
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+
+                filename = '{}_{}.json'.format(start_time.isoformat(), end_time.isoformat())
+                path = '{}/{}'.format(dir_path, filename)
+
+            else:
+                path = './' + args.output
+
+            with open(path, 'w') as f:
+                json.dump(trap_obj, f, indent=args.pretty_print)
 
     if display:
         print_status(stdscr, 'Finished!')
@@ -238,16 +260,18 @@ def parse_args():
     group.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
     group.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
     group.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
+    group.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
 
     output_group_wrapper = parser.add_argument_group('output arguments', 'Must specify exactly one of the following.')
     output_group = output_group_wrapper.add_mutually_exclusive_group(required=True)
     output_group.add_argument('-d', '--dry', action='store_true', help='Don\'t write to file.')
     output_group.add_argument('-o', '--output',
-        help='Prefix of output files. Traps are separated into different files, each starting with '
-        'this prefix and ending in an underscore and a unique integer.')
+        help='The name of the output file. If --split-traps is set, each separate file '
+        'will end in "_X", where X is a unique integer.')
     output_group.add_argument('-n', '--nested-directories', action='store_true',
-        help='Instead of writing to files in the current directory, write to ./smart-trap-json/[API Key]/[Trap ID]/. '
-        'Each filename will be [Trap ID]_[Start Time]_[End Time].json.')
+        help='Instead of writing to a file in the current directory, write to ./smart-trap-json/[API Key]/. '
+        'The filename will be [Start Time]_[End Time].json. If --split-traps is set, write to '
+        './smart-trap-json/[API Key]/[Trap ID]/. Each filename will be [Trap ID]_[Start Time]_[End Time].json')
  
     args = parser.parse_args()
 
