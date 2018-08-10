@@ -6,6 +6,7 @@ import sys
 import csv
 import json
 import pprint
+import math
 from datetime import datetime
 
 def main():
@@ -83,10 +84,9 @@ def write_collections(captures, metadata, csv):
         lon = float(capture['trap_longitude'])
 
         for collection in collections:
-            same_lat = abs(lat - float(collection['latitude'])) < 0.001
-            same_lon = abs(lon - float(collection['longitude'])) < 0.001
+            distance = calculate_distance(lat, lon, collection['latitude'], collection['longitude'])
 
-            if same_lat and same_lon:
+            if distance < 0.111:
                 collection['captures'].append(capture)
                 break
         else:
@@ -178,6 +178,21 @@ def write_metadata(trap_id, metadata):
         f.seek(0)
         f.truncate()
         json.dump(js, f, indent=4)
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # Approximate radius of earth in kilometers
+    R = 6373.0
+
+    arguments = (lat1, lon1, lat2, lon2)
+    lat1, lon1, lat2, lon2 = map(math.radians, arguments)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    distance = R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    return distance
 
 main()
 
