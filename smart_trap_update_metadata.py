@@ -68,7 +68,7 @@ def add_key(args):
 
     with open(metadata_name, 'r+') as metadata_f:
         metadata = json.load(metadata_f)
-        prefixes = [metadata[key]['metadata']['prefix'] for key in metadata]
+        prefixes = [metadata[key]['prefix'] for key in metadata]
 
         if new_key in metadata:
             raise ValueError('Key already exists.')
@@ -77,11 +77,10 @@ def add_key(args):
         else:
             metadata[new_key] = {
                 'traps': [],
-                'metadata': {
-                    'entity': entity,
-                    'prefix': prefix,
-                    'ordinals': {}
-                },
+                'entity': entity,
+                'prefix': prefix,
+                'ordinals': {},
+                'locations': [],
                 'prev_keys': []
             }
 

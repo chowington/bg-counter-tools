@@ -71,36 +71,47 @@ def main():
                       .format(filename, total_captures, good_captures, total_captures - good_captures))
 
 def write_collections(captures, metadata, csv):
-    collections = []
+    collections = metadata['locations']
     good_captures = 0
 
+    for collection in collections:
+        collection['captures'] = []
+        collection['new'] = False
+
     for capture in captures:
-        binned = False
+        lat = float(capture['trap_latitude'])
+        lon = float(capture['trap_longitude'])
 
         for collection in collections:
-            same_lat = abs(float(capture['trap_latitude']) - float(collection[0]['trap_latitude'])) < 0.001
-            same_lon = abs(float(capture['trap_longitude']) - float(collection[0]['trap_longitude'])) < 0.001
+            same_lat = abs(lat - float(collection['latitude'])) < 0.001
+            same_lon = abs(lon - float(collection['longitude'])) < 0.001
 
             if same_lat and same_lon:
-                collection.append(capture)
-                binned = True
+                collection['captures'].append(capture)
                 break
+        else:
+            collections.append({
+                'latitude': lat,
+                'longitude': lon,
+                'captures': [capture],
+                'new': True
+            })
 
-        if not binned:
-            collections.append([capture])
-
-    for collection in collections:
+    for i in range(len(collections) - 1, -1, -1):
         #print([collection[0]['trap_id'], collection[0]['timestamp_start'],
         #       collection[0]['trap_latitude'], collection[0]['trap_longitude'], len(collection)])
+        collection = collections[i]
+        curr_captures = collection['captures']
+        num_captures = len(curr_captures)
 
-        if len(collection) > 96:
+        if num_captures > 96:
             raise ValueError('More than 96 captures in a day.')
 
-        if len(collection) >= 92:
+        elif num_captures >= 92:
             mos_count = 0
             used_co2 = False
 
-            for capture in collection:
+            for capture in curr_captures:
                 mos_count += int(capture['medium'])
 
                 if not used_co2 and capture['co2_status']:
@@ -111,8 +122,8 @@ def write_collections(captures, metadata, csv):
             else:
                 attractant = ''
 
-            trap_id = collection[0]['trap_id']
-            date = collection[0]['timestamp_start'][:10]
+            trap_id = curr_captures[0]['trap_id']
+            date = curr_captures[0]['timestamp_start'][:10]
             year = date[:4]
             prefix = metadata['prefix']
 
@@ -126,11 +137,20 @@ def write_collections(captures, metadata, csv):
             sample_ID = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
 
             csv.writerow([collection_ID, sample_ID, date, date, trap_id,
-                          collection[0]['trap_latitude'], collection[0]['trap_longitude'], '', 'BG-COUNTER trap catch', attractant,
+                          collection['latitude'], collection['longitude'], '', 'BG-COUNTER trap catch', attractant,
                           1, 1, 'Culicidae', 'by size', 'adult',
                           'unknown sex', mos_count])
 
-            good_captures += len(collection)
+            good_captures += num_captures
+            del collections[i]['captures']
+            del collections[i]['new']
+
+        else:
+            if collection['new']:
+                del collections[i]
+            else:
+                del collections[i]['captures']
+                del collections[i]['new']
 
     return good_captures
 
@@ -138,17 +158,11 @@ def get_metadata(trap_id):
     with open('smart-trap-metadata.json', 'r') as f:
         js = json.load(f)
 
-        metadata = None
-
         for trapset in js.values():
             if trap_id in trapset['traps']:
-                metadata = trapset['metadata']
-                break
+                return trapset
 
-        if not metadata:
-            raise ValueError('No metadata for trap ID: ' + trap_id)
-
-        return metadata
+        raise ValueError('No metadata for trap ID: ' + trap_id)
 
 def write_metadata(trap_id, metadata):
     with open('smart-trap-metadata.json', 'r+') as f:
@@ -156,8 +170,10 @@ def write_metadata(trap_id, metadata):
 
         for api_key in js:
             if trap_id in js[api_key]['traps']:
-                js[api_key]['metadata'] = metadata
+                js[api_key] = metadata
                 break
+        else:
+            raise ValueError('No metadata for trap ID: ' + trap_id)
 
         f.seek(0)
         f.truncate()
