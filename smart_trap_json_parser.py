@@ -28,13 +28,15 @@ def main():
 
                 for trap_wrapper in js['traps']:
                     trap = trap_wrapper['Trap']
+                    trap_id = trap['id']
                     captures = trap_wrapper['Capture']
-    
+                    metadata = get_metadata(trap_id)
+
                     if len(captures) != 0:
                         day_captures = []
                         prev_timestamp = None
                         date = captures[0]['timestamp_start'][:10]
-    
+
                         for capture in captures:
                             curr_timestamp = capture['timestamp_start']
                             '''print([trap['id'], curr_timestamp, capture['latitude'], capture['longitude'], capture['isTrapExactLocation']])
@@ -47,10 +49,10 @@ def main():
                                 curr_date = curr_timestamp[:10]
 
                                 if not curr_date == date:
-                                    good_captures += write_collections(day_captures, out_csv)
+                                    good_captures += write_collections(day_captures, metadata, out_csv)
                                     day_captures = []
                                     date = curr_date
-    
+
                                 day_captures.append({
                                     'trap_id' : capture['trap_id'],
                                     'timestamp_start' : capture['timestamp_start'],
@@ -63,10 +65,12 @@ def main():
                     else:
                         print('Warning: 0 captures at file: {} - trap_id: {}'.format(filename, trap['id']))
 
+                    write_metadata(trap_id, metadata)
+
                 print('End of file: {} - Total captures: {} - Good captures: {} - Tossed captures: {}'
                       .format(filename, total_captures, good_captures, total_captures - good_captures))
 
-def write_collections(captures, csv):
+def write_collections(captures, metadata, csv):
     collections = []
     good_captures = 0
 
@@ -89,6 +93,9 @@ def write_collections(captures, csv):
         #print([collection[0]['trap_id'], collection[0]['timestamp_start'],
         #       collection[0]['trap_latitude'], collection[0]['trap_longitude'], len(collection)])
 
+        if len(collection) > 96:
+            raise ValueError('More than 96 captures in a day.')
+
         if len(collection) >= 92:
             mos_count = 0
             used_co2 = False
@@ -106,9 +113,17 @@ def write_collections(captures, csv):
 
             trap_id = collection[0]['trap_id']
             date = collection[0]['timestamp_start'][:10]
+            year = date[:4]
+            prefix = metadata['prefix']
 
-            collection_ID = '{}_{}_collection_{}'.format('VB', trap_id, date)
-            sample_ID = '{}_{}_sample_{}'.format('VB', trap_id, date)
+            if year not in metadata['ordinals']:
+                metadata['ordinals'][year] = 0
+
+            ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
+            ordinal_string = str(ordinal).zfill(8)
+
+            collection_ID = '{}_{}_collection_{}'.format(prefix, year, ordinal_string)
+            sample_ID = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
 
             csv.writerow([collection_ID, sample_ID, date, date, trap_id,
                           collection[0]['trap_latitude'], collection[0]['trap_longitude'], '', 'BG-COUNTER trap catch', attractant,
@@ -118,6 +133,35 @@ def write_collections(captures, csv):
             good_captures += len(collection)
 
     return good_captures
+
+def get_metadata(trap_id):
+    with open('smart-trap-metadata.json', 'r') as f:
+        js = json.load(f)
+
+        metadata = None
+
+        for trapset in js.values():
+            if trap_id in trapset['traps']:
+                metadata = trapset['metadata']
+                break
+
+        if not metadata:
+            raise ValueError('No metadata for trap ID: ' + trap_id)
+
+        return metadata
+
+def write_metadata(trap_id, metadata):
+    with open('smart-trap-metadata.json', 'r+') as f:
+        js = json.load(f)
+
+        for api_key in js:
+            if trap_id in js[api_key]['traps']:
+                js[api_key]['metadata'] = metadata
+                break
+
+        f.seek(0)
+        f.truncate()
+        json.dump(js, f, indent=4)
 
 main()
 
