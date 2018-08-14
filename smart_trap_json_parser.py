@@ -66,30 +66,14 @@ def process_captures(captures, metadata, out_csv):
     good_captures = 0
     day_captures = []
     prev_end_timestamp = None
-    date = captures[0]['timestamp_start'][:10]
+    num_captures = len(captures)
 
-    for capture in captures:
+    for i in range(num_captures):
+        capture = captures[i]
         curr_end_timestamp = capture['timestamp_end']
+        curr_date = capture['timestamp_start'][:10]
 
         if curr_end_timestamp != prev_end_timestamp:
-            total_captures += 1
-            prev_end_timestamp = curr_end_timestamp
-            curr_date = capture['timestamp_start'][:10]
-
-            if curr_date != date:
-                if len(day_captures) > 96:
-                    raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'
-                        .format(captures[0]['trap_id'], date))
-
-                collection = make_collection(day_captures, metadata)
-
-                if collection:
-                    write_collection(collection, metadata, out_csv)
-                    good_captures += len(collection['captures'])
-
-                day_captures = []
-                date = curr_date
-
             day_captures.append({
                 'trap_id' : capture['trap_id'],
                 'timestamp_start' : capture['timestamp_start'],
@@ -98,6 +82,21 @@ def process_captures(captures, metadata, out_csv):
                 'trap_latitude' : capture['trap_latitude'],
                 'trap_longitude' : capture['trap_longitude'],
             })
+
+            total_captures += 1
+            prev_end_timestamp = curr_end_timestamp
+
+        if i == num_captures - 1 or captures[i + 1]['timestamp_start'][:10] != curr_date:
+            if len(day_captures) > 96:
+                raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(capture['trap_id'], curr_date))
+
+            collection = make_collection(day_captures, metadata)
+
+            if collection:
+                write_collection(collection, metadata, out_csv)
+                good_captures += len(collection['captures'])
+
+            day_captures = []
 
     return total_captures, good_captures
 
