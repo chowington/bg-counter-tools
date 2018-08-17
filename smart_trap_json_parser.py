@@ -7,6 +7,7 @@ import csv
 import json
 import math
 import argparse
+from datetime import datetime
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap API '
@@ -15,7 +16,8 @@ def parse_args():
     parser.add_argument('file', nargs='+', help='The JSON file(s) to parse.')
     parser.add_argument('-o', '--output', default='interchange.out', help='The name of the output file.')
     parser.add_argument('--preserve-metadata', action='store_true',
-        help='Don\'t change the metadata file in any way, neglecting to update any ordinals or locations.')
+        help='Don\'t change the metadata file in any way, neglecting to update any ordinals or locations. '
+        'Note: This feature currently isn\'t perfect, as it can also affect the CSV output.')
 
     args = parser.parse_args()
 
@@ -71,18 +73,20 @@ def process_captures(captures, metadata, out_csv):
     total_captures = 0  # The total number of unique captures (some are duplicates)
     good_captures = 0  # The number of captures that end up being collated into a collection
     day_captures = []  # The captures within a single day
-    prev_end_timestamp = None  # The timestamp_end of the last capture
+    prev_end_timestamp = datetime.min  # Will hold the timestamp_end of the last capture
     num_captures = len(captures)
 
     for i in range(num_captures):
         capture = captures[i]
-        curr_end_timestamp = capture['timestamp_end']
-        curr_date = capture['timestamp_start'][:10]
+        curr_date = make_date(capture['timestamp_start'])
 
-        # Only add capture if it's not a duplicate - end timestamp
-        # is better for this than start b/c start has slight variation
-        # even if capture is over the same time period
-        if curr_end_timestamp != prev_end_timestamp:
+        # We use this to do some sanity checking.
+        # The ending timestamp is more consistent than the starting one
+        curr_end_timestamp = make_datetime(capture['timestamp_end'])
+
+        # If this end timestamp is later than the previous one, store the capture.
+        # We ignore the capture if it's identical to the previous one
+        if curr_end_timestamp > prev_end_timestamp:
             day_captures.append({
                 'trap_id' : capture['trap_id'],
                 'timestamp_start' : capture['timestamp_start'],
@@ -96,8 +100,13 @@ def process_captures(captures, metadata, out_csv):
             total_captures += 1
             prev_end_timestamp = curr_end_timestamp
 
+        # Else if this timestamp is earlier than the previous one, error out.
+        # We rely on the captures being delivered in forward chronological order
+        elif curr_end_timestamp < prev_end_timestamp:
+            raise ValueError('Capture has earlier ending timestamp than preceding capture. Capture ID: ' + capture['id'])
+
         # If we're at the last capture or the next capture is from a different day, end this day
-        if i == num_captures - 1 or captures[i + 1]['timestamp_start'][:10] != curr_date:
+        if i == num_captures - 1 or make_date(captures[i + 1]['timestamp_start']) != curr_date:
             # Our current assumption is that there are no more than 96 unique captures
             # in a day (4 per hour) - if this changes, we'll need to edit this script
             if len(day_captures) > 96:
@@ -106,7 +115,7 @@ def process_captures(captures, metadata, out_csv):
             # Try to make a collection from this set of captures
             collection = make_collection(day_captures, metadata)
 
-            # If a collection could be made, write it to file
+            # If a collection could be made, write it to file and count its captures as good
             if collection and write_collection(collection, metadata, out_csv):
                 good_captures += len(collection['captures'])
 
@@ -180,7 +189,7 @@ def write_collection(collection, metadata, csv):
     used_co2 = False  # Stores whether CO2 was turned on at some point in the day
 
     trap_id = captures[0]['trap_id']
-    date = captures[0]['timestamp_start'][:10]
+    date = make_date(captures[0]['timestamp_start'])
 
     # Sum all of the mosquitoes captured throughout the day and check to see whether counter and CO2 were used
     for capture in captures:
@@ -199,20 +208,20 @@ def write_collection(collection, metadata, csv):
         else:
             attractant = ''
 
-        year = date[:4]
+        year_string = str(date.year)
         prefix = metadata['prefix']
 
         # If no ordinal exists for this year, make a new one
-        if year not in metadata['ordinals']:
-            metadata['ordinals'][year] = 0
+        if year_string not in metadata['ordinals']:
+            metadata['ordinals'][year_string] = 0
 
         # Increment the ordinal and store it, then make a string out of it.
         # 8 digits should be enough to account for the amount of data we could expect per year
-        ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
+        ordinal = metadata['ordinals'][year_string] = metadata['ordinals'][year_string] + 1
         ordinal_string = str(ordinal).zfill(8)
 
-        collection_ID = '{}_{}_collection_{}'.format(prefix, year, ordinal_string)
-        sample_ID = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
+        collection_ID = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
+        sample_ID = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
 
         # Write the collection to file
         csv.writerow([collection_ID, sample_ID, date, date, trap_id,
@@ -254,6 +263,14 @@ def write_metadata(trap_id, metadata):
         f.seek(0)
         f.truncate()
         json.dump(js, f, indent=4)
+
+# Attempts to create a datetime object from a string
+def make_datetime(string):
+    return datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
+
+# Attempts to create a date object from a string
+def make_date(string):
+    return make_datetime(string).date()
 
 # Calculate the distance in kilometers between two sets of decimal coordinates
 def calculate_distance(lat1, lon1, lat2, lon2):
