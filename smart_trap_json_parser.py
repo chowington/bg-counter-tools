@@ -29,6 +29,8 @@ def main():
     
     with open(out_name, 'w') as out_file:
         out_csv = csv.writer(out_file)
+
+        # Write the header row
         out_csv.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
                           'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
                           'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
@@ -37,14 +39,13 @@ def main():
         for filename in files:
             with open(filename, 'r') as json_f:
                 js = json.load(json_f)
-                total_captures = 0
-                good_captures = 0
+                total_captures = 0   # The total number of unique captures (some are duplicates)
+                good_captures = 0  # The number of captures that end up being collated into a collection
 
                 print("Processing file " + filename)
 
                 for trap_wrapper in js['traps']:
-                    trap = trap_wrapper['Trap']
-                    trap_id = trap['id']
+                    trap_id = trap_wrapper['Trap']['id']
                     captures = trap_wrapper['Capture']
                     metadata = get_metadata(trap_id)
 
@@ -52,8 +53,11 @@ def main():
                         total_count, good_count = process_captures(captures, metadata, out_csv)
                         total_captures += total_count
                         good_captures += good_count
+
+                    # Warn if a trap is showing no captures. We should reasonably expect data from each trap,
+                    # and if we aren't getting any, it might be worth looking into
                     else:
-                        print('Warning: 0 captures at trap_id: ' + trap['id'])
+                        print('Warning: 0 captures at trap_id: ' + trap_id)
 
                     if not args.preserve_metadata:
                         write_metadata(trap_id, metadata)
@@ -61,11 +65,13 @@ def main():
                 print('End of file. Total captures: {} - Good captures: {} - Tossed captures: {}'
                       .format(total_captures, good_captures, total_captures - good_captures))
 
+# Takes a set of captures from a single trap and bins them into days
+# before sending them off to be collected and written to file
 def process_captures(captures, metadata, out_csv):
-    total_captures = 0
-    good_captures = 0
-    day_captures = []
-    prev_end_timestamp = None
+    total_captures = 0  # The total number of unique captures (some are duplicates)
+    good_captures = 0  # The number of captures that end up being collated into a collection
+    day_captures = []  # The captures within a single day
+    prev_end_timestamp = None  # The timestamp_end of the last capture
     num_captures = len(captures)
 
     for i in range(num_captures):
@@ -73,11 +79,15 @@ def process_captures(captures, metadata, out_csv):
         curr_end_timestamp = capture['timestamp_end']
         curr_date = capture['timestamp_start'][:10]
 
+        # Only add capture if it's not a duplicate - end timestamp
+        # is better for this than start b/c start has slight variation
+        # even if capture is over the same time period
         if curr_end_timestamp != prev_end_timestamp:
             day_captures.append({
                 'trap_id' : capture['trap_id'],
                 'timestamp_start' : capture['timestamp_start'],
                 'co2_status' : capture['co2_status'],
+                'counter_status' : capture['counter_status'],
                 'medium' : capture['medium'],
                 'trap_latitude' : capture['trap_latitude'],
                 'trap_longitude' : capture['trap_longitude'],
@@ -86,24 +96,35 @@ def process_captures(captures, metadata, out_csv):
             total_captures += 1
             prev_end_timestamp = curr_end_timestamp
 
+        # If we're at the last capture or the next capture is from a different day, end this day
         if i == num_captures - 1 or captures[i + 1]['timestamp_start'][:10] != curr_date:
+            # Our current assumption is that there are no more than 96 unique captures
+            # in a day (4 per hour) - if this changes, we'll need to edit this script
             if len(day_captures) > 96:
                 raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(capture['trap_id'], curr_date))
 
+            # Try to make a collection from this set of captures
             collection = make_collection(day_captures, metadata)
 
-            if collection:
-                write_collection(collection, metadata, out_csv)
+            # If a collection could be made, write it to file
+            if collection and write_collection(collection, metadata, out_csv):
                 good_captures += len(collection['captures'])
 
             day_captures = []
 
     return total_captures, good_captures
 
+# Takes a set of captures within the same day, bins them based on location,
+# and returns the collection that is big enough, returning None if there is none.
+# It also adds new locations to the metadata dict if there are any.
 def make_collection(captures, metadata):
+    # A list of dicts containing locations that we've previously identified for this set of traps
     location_groups = metadata['locations']
-    collection = None
 
+    collection = None  # This will hold the final collection if there is one
+
+    # Add a new key that will hold the captures that map to this location
+    # and a key that will let us know that these locations are not new (used later)
     for location_group in location_groups:
         location_group['captures'] = []
         location_group['new'] = False
@@ -112,12 +133,15 @@ def make_collection(captures, metadata):
         curr_lat = float(capture['trap_latitude'])
         curr_lon = float(capture['trap_longitude'])
 
+        # Find the first location that this capture is close to
         for location_group in location_groups:
             distance = calculate_distance(curr_lat, curr_lon, location_group['latitude'], location_group['longitude'])
 
-            if distance < 0.111:
+            if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
                 location_group['captures'].append(capture)
                 break
+        # If it's not close to any known location, add a new location at its coordinates.
+        # This adds it to the metadata dict as well
         else:
             location_groups.append({
                 'latitude': curr_lat,
@@ -126,60 +150,85 @@ def make_collection(captures, metadata):
                 'new': True
             })
 
+    # Loop backwards so we can remove items from location_groups
     for i in range(len(location_groups) - 1, -1, -1):
         location_group = location_groups[i]
         num_captures = len(location_group['captures'])
 
+        # Allow at most one cumulative hour of missing data in a day
         if num_captures >= 92:
             collection = dict(location_group)
 
-            del location_group['captures']
-            del location_group['new']
+        # If there weren't enough captures for a full collection and the location was new,
+        # remove it so it doesn't get added to the metadata
+        elif location_group['new']:
+            del location_groups[i]
 
-        else:
-            if location_group['new']:
-                del location_groups[i]
-            else:
-                del location_group['captures']
-                del location_group['new']
+        # Remove 'captures' and 'new'
+        del location_group['captures']
+        del location_group['new']
 
     return collection
 
+# Takes a collection containing a day's worth of captures and aggregates and writes it to file
+# if the counter was on at some point during the day. Returns True if the collection was written
+# and False if it wasn't.
 def write_collection(collection, metadata, csv):
     captures = collection['captures']
     mos_count = 0
-    used_co2 = False
+    counter_on = False  # Stores whether the counter was turned on at some point in the day
+    used_co2 = False  # Stores whether CO2 was turned on at some point in the day
 
+    trap_id = captures[0]['trap_id']
+    date = captures[0]['timestamp_start'][:10]
+
+    # Sum all of the mosquitoes captured throughout the day and check to see whether counter and CO2 were used
     for capture in captures:
-        mos_count += int(capture['medium'])
+        mos_count += int(capture['medium'])  # Mosquito counts are stored in the 'medium' field
 
         if not used_co2 and capture['co2_status']:
             used_co2 = True
 
-    if used_co2:
-        attractant = 'carbon dioxide'
+        if not counter_on and capture['counter_status']:
+            counter_on = True
+
+    # Only write the collection if the counter was on
+    if counter_on:
+        if used_co2:
+            attractant = 'carbon dioxide'
+        else:
+            attractant = ''
+
+        year = date[:4]
+        prefix = metadata['prefix']
+
+        # If no ordinal exists for this year, make a new one
+        if year not in metadata['ordinals']:
+            metadata['ordinals'][year] = 0
+
+        # Increment the ordinal and store it, then make a string out of it.
+        # 8 digits should be enough to account for the amount of data we could expect per year
+        ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
+        ordinal_string = str(ordinal).zfill(8)
+
+        collection_ID = '{}_{}_collection_{}'.format(prefix, year, ordinal_string)
+        sample_ID = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
+
+        # Write the collection to file
+        csv.writerow([collection_ID, sample_ID, date, date, trap_id,
+                      collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
+                      1, 1, 'Culicidae', 'by size', 'adult',
+                      'unknown sex', mos_count])
+
+        return True
+
     else:
-        attractant = ''
+        # If the counter was never on, print a warning. If this is the case for
+        # a decent number of days, it might be worth looking into
+        print('Warning: Counter never on at date: {} - trap_id: {}'.format(date, trap_id))
+        return False
 
-    trap_id = captures[0]['trap_id']
-    date = captures[0]['timestamp_start'][:10]
-    year = date[:4]
-    prefix = metadata['prefix']
-
-    if year not in metadata['ordinals']:
-        metadata['ordinals'][year] = 0
-
-    ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
-    ordinal_string = str(ordinal).zfill(8)
-
-    collection_ID = '{}_{}_collection_{}'.format(prefix, year, ordinal_string)
-    sample_ID = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
-
-    csv.writerow([collection_ID, sample_ID, date, date, trap_id,
-                  collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
-                  1, 1, 'Culicidae', 'by size', 'adult',
-                  'unknown sex', mos_count])
-
+# Get the metadata for a given trap_id
 def get_metadata(trap_id):
     with open('smart-trap-metadata.json', 'r') as f:
         js = json.load(f)
@@ -190,6 +239,7 @@ def get_metadata(trap_id):
 
         raise ValueError('No metadata for trap ID: ' + trap_id)
 
+# Write the updated metadata for a given trap_id
 def write_metadata(trap_id, metadata):
     with open('smart-trap-metadata.json', 'r+') as f:
         js = json.load(f)
@@ -205,8 +255,9 @@ def write_metadata(trap_id, metadata):
         f.truncate()
         json.dump(js, f, indent=4)
 
+# Calculate the distance in kilometers between two sets of decimal coordinates
 def calculate_distance(lat1, lon1, lat2, lon2):
-    # Approximate radius of earth in kilometers
+    # Approximate radius of earth in km
     R = 6373.0
 
     arguments = (lat1, lon1, lat2, lon2)
