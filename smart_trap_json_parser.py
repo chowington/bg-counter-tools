@@ -215,10 +215,21 @@ def write_collection(collection, metadata, csv):
         if year_string not in metadata['ordinals']:
             metadata['ordinals'][year_string] = 0
 
-        # Increment the ordinal and store it, then make a string out of it.
-        # 8 digits should be enough to account for the amount of data we could expect per year
+        # Increment the ordinal and store it
         ordinal = metadata['ordinals'][year_string] = metadata['ordinals'][year_string] + 1
-        ordinal_string = str(ordinal).zfill(8)
+
+        # The ordinal string must have a leading zero, so we're giving it a length that probably won't
+        # be exceeded for a year's worth of data. If it is exceeded, make sure it has at least
+        # one leading zero and warn us that the ordinal is getting large
+        digits = 8
+        len_ordinal = len(str(ordinal))
+        min_digits = len_ordinal + 1
+
+        if min_digits > digits:
+            digits = min_digits
+            print('Warning: Large ordinal at trap_id: {} - year: {} - ordinal: {}'.format(trap_id, year_string, ordinal))
+
+        ordinal_string = str(ordinal).zfill(digits)
 
         collection_ID = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
         sample_ID = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
