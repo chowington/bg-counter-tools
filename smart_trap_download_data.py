@@ -52,7 +52,6 @@ def main(stdscr, args):
         captures = trap_wrapper['Capture']
         num_captures = len(captures)
         trap_data[trap_id] = trap_wrapper
-        #print('trap_id: {} - Starting captures: {}'.format(trap_id, len(captures)))
 
         if display:
             # Draw horizontal lines
@@ -103,25 +102,18 @@ def main(stdscr, args):
         ending_dates = list(incomplete_traps.values())
         earliest_date = ending_dates[0]
 
-        #stdscr.move(50, 5)
         for date in ending_dates:
-            #y, x = stdscr.getyx()
-            #stdscr.move(y + 1, 5)
-            #stdscr.addstr(date.isoformat())
             if date < earliest_date:
                 earliest_date = date
 
-        #stdscr.getch()
         if display:
             # Move the tracking line to the earliest time
             position = date_to_position(earliest_date, start_time, gradation)
-            #stdscr.addstr(55, 5, str(position))
             erase_tracking_line(stdscr, trap_ys, graph_width)
             draw_tracking_line(stdscr, position, trap_ys)
 
         # Perform a request from the earliest time to the original end time
         # with a half-second delay so we don't overload the server
-        #stdscr.getch()
         sleep(0.5)
         new_js = request_data(stdscr, api_key, earliest_date, end_time)
 
@@ -130,7 +122,6 @@ def main(stdscr, args):
             for trap_id, ending_date in incomplete_traps.items():
                 position = date_to_position(ending_date, start_time, gradation)
                 stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(2))
-                #stdscr.addstr(ending_date.isoformat() + ' ' + str(position))
     
             stdscr.refresh()
 
@@ -213,7 +204,6 @@ def main(stdscr, args):
             i = 0
 
             for trap_id, trap_wrapper in trap_data.items():
-                #print('trap_id: {} - Final captures: {}'.format(trap_id, len(captures)))
 
                 # Don't write if we're skipping empty and there are no captures
                 if not (args.skip_empty and not trap_wrapper['Capture']):
