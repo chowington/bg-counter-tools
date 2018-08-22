@@ -77,6 +77,9 @@ def main(stdscr, args):
                 position = date_to_position(ending_datetime, start_time, gradation)
                 stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(1))
                 stdscr.addstr(y, 23 + graph_width, str(num_captures))
+            else:
+                percentage = date_to_percentage(ending_datetime, start_time, end_time)
+                print('Trap {}: {}% complete.'.format(trap_id, percentage))
 
         # If the API is ever improved so that it can deliver more than LIMIT captures,
         # we'll have to modify this script
@@ -84,9 +87,12 @@ def main(stdscr, args):
             raise ValueError('More than {} (LIMIT) captures for a trap: {}.'.format(LIMIT, num_captures))
 
         # Else, assume that we got all captures
-        elif display:
-            stdscr.addstr(y, 23 + graph_width, 'Done')
-            stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+        else:
+            if display:
+                stdscr.addstr(y, 23 + graph_width, 'Done')
+                stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+            else:
+                print('Trap {}: 100% complete.'.format(trap_id))
 
     if display:
         stdscr.refresh()
@@ -114,7 +120,9 @@ def main(stdscr, args):
             draw_tracking_line(stdscr, position, trap_ys)
 
         # Perform a request from the earliest time to the original end time
+        # with a half-second delay so we don't overload the server
         #stdscr.getch()
+        sleep(0.5)
         new_js = request_data(stdscr, api_key, earliest_date, end_time)
 
         # Turn all previous data green
@@ -177,11 +185,17 @@ def main(stdscr, args):
                         stdscr.hline(y, 23 + graph_width, ' ', 6)
                         stdscr.addstr(y, 23 + graph_width, 'Done')
                         stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+                    else:
+                        print('Trap {}: 100% complete.'.format(trap_id))
 
-                elif display:
-                    # Print the number of new captures to the right of the trap's line
-                    stdscr.hline(y, 23 + graph_width, ' ', 6)
-                    stdscr.addstr(y, 23 + graph_width, '+' + str(num_new_captures))
+                else:
+                    if display:
+                        # Print the number of new captures to the right of the trap's line
+                        stdscr.hline(y, 23 + graph_width, ' ', 6)
+                        stdscr.addstr(y, 23 + graph_width, '+' + str(num_new_captures))
+                    else:
+                        percentage = date_to_percentage(incomplete_traps[trap_id], start_time, end_time)
+                        print('Trap {}: {}% complete. ({} new captures)'.format(trap_id, percentage, num_new_captures))
 
     if display:
         # Now that we're done, move the tracking line to the end
@@ -192,10 +206,12 @@ def main(stdscr, args):
     if not args.dry:
         if display:
             print_status(stdscr, 'Writing to file...')
-
-        i = 0
+        else:
+            print('Writing to file...')
 
         if args.split_traps:
+            i = 0
+
             for trap_id, trap_wrapper in trap_data.items():
                 #print('trap_id: {} - Final captures: {}'.format(trap_id, len(captures)))
 
@@ -245,6 +261,8 @@ def main(stdscr, args):
     if display:
         print_status(stdscr, 'Finished!')
         sleep(1.5)
+    else:
+        print('Finished.')
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Pulls smart trap data.')
@@ -300,6 +318,8 @@ def parse_date(string):
 def request_data(stdscr, api_key, start_time, end_time):
     if stdscr:
         print_status(stdscr, 'Performing request...')
+    else:
+        print('Performing request...')
 
     data = {
         'data[user_id]' : api_key,
@@ -314,12 +334,18 @@ def request_data(stdscr, api_key, start_time, end_time):
 
     if stdscr:
         print_status(stdscr, 'Done.')
+    else:
+        print('Done.')
 
     return js
 
 # Returns the graph position that a certain datetime maps to
 def date_to_position(datetime, start_time, gradation):
     return math.floor((datetime - start_time) / gradation)
+
+# Returns the percentage that a certain datetime represents
+def date_to_percentage(datetime, start_time, end_time):
+    return math.floor(((datetime - start_time) / (end_time - start_time)) * 100)
 
 # Draws the tracking line at a certain position on the graph
 def draw_tracking_line(stdscr, position, trap_ys):
