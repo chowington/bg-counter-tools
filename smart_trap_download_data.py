@@ -13,6 +13,46 @@ import math
 from datetime import datetime, timedelta
 from time import sleep
 
+# Parses the command line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description='Pulls smart trap data.')
+
+    group = parser.add_argument_group('arguments')
+    group.add_argument('-k', '--api-key', required=True,
+        help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
+    group.add_argument('-s', '--start-time', type=parse_date, required=True,
+        help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
+        '"YYYY-MM-DD", "YYYY-MM-DDTHH:MM", "YYYY-MM-DDTHH:MM:SS"')
+    group.add_argument('-e', '--end-time', type=parse_date, required=True,
+        help='End of the target timeframe. Same acceptable formats as above.')
+    group.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
+    group.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
+    group.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
+    group.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
+
+    output_group_wrapper = parser.add_argument_group('output arguments', 'Must specify exactly one of the following.')
+    output_group = output_group_wrapper.add_mutually_exclusive_group(required=True)
+    output_group.add_argument('-d', '--dry', action='store_true', help='Don\'t write to file.')
+    output_group.add_argument('-o', '--output',
+        help='The name of the output file. If --split-traps is set, each separate file '
+        'will end in "_X", where X is a unique integer.')
+    output_group.add_argument('-n', '--nested-directories', action='store_true',
+        help='Instead of writing to a file in the current directory, write to ./smart-trap-json/[API Key]/. '
+        'The filename will be [Start Time]_[End Time].json. If --split-traps is set, write to '
+        './smart-trap-json/[API Key]/[Trap ID]/. Each filename will be [Trap ID]_[Start Time]_[End Time].json')
+ 
+    args = parser.parse_args()
+
+    if not args.start_time < args.end_time:
+        parser.error('End time must be after start time')
+
+    if datetime.now() - args.end_time < timedelta(days=1):
+        print('Warning: Attempting to get data from within the past 24 hours (or in the future)\n'
+              '  may yield incomplete datasets. Continuing in 5 seconds.')
+        sleep(5)
+
+    return args
+
 def main(stdscr, args):
     api_key = args.api_key
     start_time = args.start_time
@@ -253,45 +293,6 @@ def main(stdscr, args):
         sleep(1.5)
     else:
         print('Finished.')
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Pulls smart trap data.')
-
-    group = parser.add_argument_group('arguments')
-    group.add_argument('-k', '--api-key', required=True,
-        help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
-    group.add_argument('-s', '--start-time', type=parse_date, required=True,
-        help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
-        '"YYYY-MM-DD", "YYYY-MM-DDTHH:MM", "YYYY-MM-DDTHH:MM:SS"')
-    group.add_argument('-e', '--end-time', type=parse_date, required=True,
-        help='End of the target timeframe. Same acceptable formats as above.')
-    group.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
-    group.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
-    group.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
-    group.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
-
-    output_group_wrapper = parser.add_argument_group('output arguments', 'Must specify exactly one of the following.')
-    output_group = output_group_wrapper.add_mutually_exclusive_group(required=True)
-    output_group.add_argument('-d', '--dry', action='store_true', help='Don\'t write to file.')
-    output_group.add_argument('-o', '--output',
-        help='The name of the output file. If --split-traps is set, each separate file '
-        'will end in "_X", where X is a unique integer.')
-    output_group.add_argument('-n', '--nested-directories', action='store_true',
-        help='Instead of writing to a file in the current directory, write to ./smart-trap-json/[API Key]/. '
-        'The filename will be [Start Time]_[End Time].json. If --split-traps is set, write to '
-        './smart-trap-json/[API Key]/[Trap ID]/. Each filename will be [Trap ID]_[Start Time]_[End Time].json')
- 
-    args = parser.parse_args()
-
-    if not args.start_time < args.end_time:
-        parser.error('End time must be after start time')
-
-    if datetime.now() - args.end_time < timedelta(days=1):
-        print('Warning: Attempting to get data from within the past 24 hours (or in the future)\n'
-              '  may yield incomplete datasets. Continuing in 5 seconds.')
-        sleep(5)
-
-    return args
 
 # Tries to create a datetime from a string and raises an argparse error if unsuccessful
 def parse_date(string):

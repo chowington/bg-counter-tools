@@ -10,6 +10,33 @@ import re
 
 metadata_name = 'smart-trap-metadata.json'
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap persisent metadata.')
+    subparsers = parser.add_subparsers(title='subcommands', help='Add the subcommand name followed by -h for specific help on each.')
+
+    parser_ut = subparsers.add_parser('update-traps',
+        help='Adds any new traps found in a list of files to an API key\'s trap list.')
+    parser_ut.add_argument('api_key', type=api_key, help='The API key to update.')
+    parser_ut.add_argument('file', nargs='+', help='The file(s) to search for new traps.')
+    parser_ut.set_defaults(func=update_traps)
+
+    parser_ck = subparsers.add_parser('change-key', help='Changes the API key associated with a particular set of metadata.')
+    parser_ck.add_argument('old_key', type=api_key, help='The old API key.')
+    parser_ck.add_argument('new_key', type=api_key, help='The new API key.')
+    parser_ck.set_defaults(func=change_key)
+
+    parser_ak = subparsers.add_parser('add-key', help='Adds a new key and associated set of metadata.')
+    parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
+    parser_ak.add_argument('entity', type=non_empty,
+        help='The entity, organization, or authority associated with this key.')
+    parser_ak.add_argument('prefix', type=non_empty,
+        help='The prefix to use for collection and sample IDs associated with this key.')
+    parser_ak.set_defaults(func=add_key)
+
+    args = parser.parse_args()
+
+    return args
+
 def update_traps(args):
     api_key = args.api_key
     files = args.file
@@ -91,33 +118,6 @@ def overwrite_json(js, f):
     f.seek(0)
     f.truncate()
     json.dump(js, f, indent=4)
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap persisent metadata.')
-    subparsers = parser.add_subparsers(title='subcommands', help='Add the subcommand name followed by -h for specific help on each.')
-
-    parser_ut = subparsers.add_parser('update-traps',
-        help='Adds any new traps found in a list of files to an API key\'s trap list.')
-    parser_ut.add_argument('api_key', type=api_key, help='The API key to update.')
-    parser_ut.add_argument('file', nargs='+', help='The file(s) to search for new traps.')
-    parser_ut.set_defaults(func=update_traps)
-
-    parser_ck = subparsers.add_parser('change-key', help='Changes the API key associated with a particular set of metadata.')
-    parser_ck.add_argument('old_key', type=api_key, help='The old API key.')
-    parser_ck.add_argument('new_key', type=api_key, help='The new API key.')
-    parser_ck.set_defaults(func=change_key)
-
-    parser_ak = subparsers.add_parser('add-key', help='Adds a new key and associated set of metadata.')
-    parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
-    parser_ak.add_argument('entity', type=non_empty,
-        help='The entity, organization, or authority associated with this key.')
-    parser_ak.add_argument('prefix', type=non_empty,
-        help='The prefix to use for collection and sample IDs associated with this key.')
-    parser_ak.set_defaults(func=add_key)
-
-    args = parser.parse_args()
-
-    return args
 
 def api_key(string):
     if not re.match('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', string):
