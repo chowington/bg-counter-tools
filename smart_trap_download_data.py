@@ -2,16 +2,17 @@
 # Python 3.5.2 #
 ################
 
-import json
-import requests
-import pprint
 import argparse
-import os
 import collections
 import curses
+import json
 import math
+import os
+import time
 from datetime import datetime, timedelta
-from time import sleep
+
+import requests
+
 
 # Parses the command line arguments
 def parse_args():
@@ -49,9 +50,10 @@ def parse_args():
     if datetime.now() - args.end_time < timedelta(days=1):
         print('Warning: Attempting to get data from within the past 24 hours (or in the future)\n'
               '  may yield incomplete datasets. Continuing in 5 seconds.')
-        sleep(5)
+        time.sleep(5)
 
     return args
+
 
 def main(stdscr, args):
     api_key = args.api_key
@@ -154,7 +156,7 @@ def main(stdscr, args):
 
         # Perform a request from the earliest time to the original end time
         # with a half-second delay so we don't overload the server
-        sleep(0.5)
+        time.sleep(0.5)
         new_js = request_data(stdscr, api_key, earliest_date, end_time)
 
         # Turn all previous data green
@@ -290,9 +292,10 @@ def main(stdscr, args):
 
     if display:
         print_status(stdscr, 'Finished!')
-        sleep(1.5)
+        time.sleep(1.5)
     else:
         print('Finished.')
+
 
 # Tries to create a datetime from a string and raises an argparse error if unsuccessful
 def parse_date(string):
@@ -304,6 +307,7 @@ def parse_date(string):
 
     raise argparse.ArgumentTypeError(
         'Acceptable time formats ("T" is literal): "YYYY-MM-DD", "YYYY-MM-DDTHH:MM", "YYYY-MM-DDTHH:MM:SS"')
+
 
 # Returns data in JSON format for a given key, start time, and end time
 def request_data(stdscr, api_key, start_time, end_time):
@@ -330,13 +334,16 @@ def request_data(stdscr, api_key, start_time, end_time):
 
     return js
 
+
 # Returns the graph position that a certain datetime maps to
 def date_to_position(datetime, start_time, gradation):
     return math.floor((datetime - start_time) / gradation)
 
+
 # Returns the percentage that a certain datetime represents
 def date_to_percentage(datetime, start_time, end_time):
     return math.floor(((datetime - start_time) / (end_time - start_time)) * 100)
+
 
 # Draws the tracking line at a certain position on the graph
 def draw_tracking_line(stdscr, position, trap_ys):
@@ -352,6 +359,7 @@ def draw_tracking_line(stdscr, position, trap_ys):
     stdscr.addch(2 * len(trap_ys) + 6, position, '+')
     stdscr.refresh()
 
+
 # Erases the tracking line
 def erase_tracking_line(stdscr, trap_ys, graph_width):
     stdscr.hline(2, 20, ' ', graph_width + 2)
@@ -365,11 +373,13 @@ def erase_tracking_line(stdscr, trap_ys, graph_width):
     stdscr.hline(2 * len(trap_ys) + 6, 20, ' ', graph_width + 2)
     stdscr.refresh()
 
+
 # Prints string at the top left of the window
 def print_status(stdscr, string):
     stdscr.hline(1, 2, ' ', 30)
     stdscr.addstr(1, 2, string)
     stdscr.refresh()
+
 
 args = parse_args()
 
@@ -377,4 +387,3 @@ if args.display:
     curses.wrapper(main, args)
 else:
     main(None, args)
-
