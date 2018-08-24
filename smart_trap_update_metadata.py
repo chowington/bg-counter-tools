@@ -41,6 +41,8 @@ def update_traps(args):
     api_key = args.api_key
     files = args.file
 
+    new_traps = False
+
     with open(metadata_name, 'r+') as metadata_f:
         metadata = json.load(metadata_f)
 
@@ -62,9 +64,15 @@ def update_traps(args):
 
                     elif trap_id not in traps:
                         traps.append(trap_id)
+                        new_traps = True
+                        print('Added new trap: ' + trap_id)
 
-        overwrite_json(metadata, metadata_f)
-        print('Success.')
+        if not new_traps:
+            print('No new traps.')
+        else:
+            overwrite_json(metadata, metadata_f)
+
+    print('Success.')
 
 
 def change_key(args):
