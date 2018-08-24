@@ -2,12 +2,12 @@
 # Python 3.5.2 #
 ################
 
-import sys
+import argparse
 import csv
 import json
 import math
-import argparse
 from datetime import datetime
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap API '
@@ -22,6 +22,7 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
 
 def main():
     args = parse_args()
@@ -67,6 +68,7 @@ def main():
                 print('End of file. Total captures: {} - Good captures: {} - Tossed captures: {}'
                       .format(total_captures, good_captures, total_captures - good_captures))
 
+
 # Takes a set of captures from a single trap and bins them into days
 # before sending them off to be collected and written to file
 def process_captures(captures, metadata, out_csv):
@@ -88,13 +90,13 @@ def process_captures(captures, metadata, out_csv):
         # We ignore the capture if it's identical to the previous one
         if curr_end_timestamp > prev_end_timestamp:
             day_captures.append({
-                'trap_id' : capture['trap_id'],
-                'timestamp_start' : capture['timestamp_start'],
-                'co2_status' : capture['co2_status'],
-                'counter_status' : capture['counter_status'],
-                'medium' : capture['medium'],
-                'trap_latitude' : capture['trap_latitude'],
-                'trap_longitude' : capture['trap_longitude'],
+                'trap_id': capture['trap_id'],
+                'timestamp_start': capture['timestamp_start'],
+                'co2_status': capture['co2_status'],
+                'counter_status': capture['counter_status'],
+                'medium': capture['medium'],
+                'trap_latitude': capture['trap_latitude'],
+                'trap_longitude': capture['trap_longitude'],
             })
 
             total_captures += 1
@@ -122,6 +124,7 @@ def process_captures(captures, metadata, out_csv):
             day_captures = []
 
     return total_captures, good_captures
+
 
 # Takes a set of captures within the same day, bins them based on location,
 # and returns the collection that is big enough, returning None if there is none.
@@ -179,6 +182,7 @@ def make_collection(captures, metadata):
 
     return collection
 
+
 # Takes a collection containing a day's worth of captures and aggregates and writes it to file
 # if the counter was on at some point during the day. Returns True if the collection was written
 # and False if it wasn't.
@@ -231,11 +235,11 @@ def write_collection(collection, metadata, csv):
 
         ordinal_string = str(ordinal).zfill(digits)
 
-        collection_ID = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
-        sample_ID = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
+        collection_id = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
+        sample_id = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
 
         # Write the collection to file
-        csv.writerow([collection_ID, sample_ID, date, date, trap_id,
+        csv.writerow([collection_id, sample_id, date, date, trap_id,
                       collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
                       1, 1, 'Culicidae', 'by size', 'adult',
                       'unknown sex', mos_count])
@@ -248,6 +252,7 @@ def write_collection(collection, metadata, csv):
         print('Warning: Counter never on at date: {} - trap_id: {}'.format(date, trap_id))
         return False
 
+
 # Get the metadata for a given trap_id
 def get_metadata(trap_id):
     with open('smart-trap-metadata.json', 'r') as f:
@@ -258,6 +263,7 @@ def get_metadata(trap_id):
                 return trapset
 
         raise ValueError('No metadata for trap ID: ' + trap_id)
+
 
 # Write the updated metadata for a given trap_id
 def write_metadata(trap_id, metadata):
@@ -275,18 +281,21 @@ def write_metadata(trap_id, metadata):
         f.truncate()
         json.dump(js, f, indent=4)
 
+
 # Attempts to create a datetime object from a string
 def make_datetime(string):
     return datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
+
 
 # Attempts to create a date object from a string
 def make_date(string):
     return make_datetime(string).date()
 
+
 # Calculate the distance in kilometers between two sets of decimal coordinates
 def calculate_distance(lat1, lon1, lat2, lon2):
     # Approximate radius of earth in km
-    R = 6373.0
+    r = 6373.0
 
     arguments = (lat1, lon1, lat2, lon2)
     lat1, lon1, lat2, lon2 = map(math.radians, arguments)
@@ -295,10 +304,10 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     dlat = lat2 - lat1
 
     a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
-    distance = R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance = r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return distance
 
+
 if __name__ == '__main__':
     main()
-

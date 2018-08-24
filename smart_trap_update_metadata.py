@@ -2,17 +2,16 @@
 # Python 3.5.2 #
 ################
 
-import sys
-import os
 import json
 import argparse
 import re
 
 metadata_name = 'smart-trap-metadata.json'
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap persisent metadata.')
-    subparsers = parser.add_subparsers(title='subcommands', help='Add the subcommand name followed by -h for specific help on each.')
+    subparsers = parser.add_subparsers(title='subcommands', help='Add a subcommand name followed by -h for specific help on it.')
 
     parser_ut = subparsers.add_parser('update-traps',
         help='Adds any new traps found in a list of files to an API key\'s trap list.')
@@ -36,6 +35,7 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
 
 def update_traps(args):
     api_key = args.api_key
@@ -66,6 +66,7 @@ def update_traps(args):
         overwrite_json(metadata, metadata_f)
         print('Success.')
 
+
 def change_key(args):
     old_key = args.old_key
     new_key = args.new_key
@@ -87,6 +88,7 @@ def change_key(args):
 
                 overwrite_json(metadata, metadata_f)
                 print('Success.')
+
 
 def add_key(args):
     new_key = args.new_key
@@ -114,10 +116,12 @@ def add_key(args):
             overwrite_json(metadata, metadata_f)
             print('Success.')
 
+
 def overwrite_json(js, f):
     f.seek(0)
     f.truncate()
     json.dump(js, f, indent=4)
+
 
 def api_key(string):
     if not re.match('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', string):
@@ -125,11 +129,13 @@ def api_key(string):
 
     return string
 
+
 def non_empty(string):
     if not string:
         raise argparse.ArgumentTypeError('Argument cannot be empty.')
 
     return string
+
 
 if __name__ == '__main__':
     args = parse_args()
