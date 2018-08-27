@@ -50,7 +50,8 @@ def update_traps(args):
             raise ValueError('API key does not exist.')
 
         traps = metadata[api_key]['traps']
-        other_traps = [trap for key in metadata for trap in metadata[key]['traps'] if key != api_key]
+        trap_ids = [trap['id'] for trap in traps]
+        other_trap_ids = [trap['id'] for key in metadata for trap in metadata[key]['traps'] if key != api_key]
 
         for filename in files:
             with open(filename, 'r') as json_f:
@@ -59,11 +60,15 @@ def update_traps(args):
                 for trap_wrapper in js['traps']:
                     trap_id = trap_wrapper['Trap']['id']
 
-                    if trap_id in other_traps:
+                    if trap_id in other_trap_ids:
                         raise ValueError('Trap {} already exists under a different API key.'.format(trap_id))
 
-                    elif trap_id not in traps:
-                        traps.append(trap_id)
+                    elif trap_id not in trap_ids:
+                        traps.append({
+                            'id': trap_id,
+                            'locations': []
+                        })
+
                         new_traps = True
                         print('Added new trap: ' + trap_id)
 
@@ -117,7 +122,6 @@ def add_key(args):
                 'entity': entity,
                 'prefix': prefix,
                 'ordinals': {},
-                'locations': [],
                 'prev_keys': []
             }
 
@@ -148,4 +152,3 @@ def non_empty(string):
 if __name__ == '__main__':
     args = parse_args()
     args.func(args)
-

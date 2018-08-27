@@ -109,13 +109,22 @@ def process_captures(captures, metadata, out_csv):
 
         # If we're at the last capture or the next capture is from a different day, end this day
         if i == num_captures - 1 or make_date(captures[i + 1]['timestamp_start']) != curr_date:
+            trap_id = capture['trap_id']
+
             # Our current assumption is that there are no more than 96 unique captures
             # in a day (4 per hour) - if this changes, we'll need to edit this script
             if len(day_captures) > 96:
-                raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(capture['trap_id'], curr_date))
+                raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(trap_id, curr_date))
+
+            # Get the locations for the current trap.
+            # get_metadata() guarantees that the trap exists within metadata
+            for trap in metadata['traps']:
+                if trap['id'] == trap_id:
+                    locations = trap['locations']
+                    break
 
             # Try to make a collection from this set of captures
-            collection = make_collection(day_captures, metadata)
+            collection = make_collection(day_captures, locations)
 
             # If a collection could be made, write it to file and count its captures as good
             if collection and write_collection(collection, metadata, out_csv):
@@ -129,10 +138,7 @@ def process_captures(captures, metadata, out_csv):
 # Takes a set of captures within the same day, bins them based on location,
 # and returns the collection that is big enough, returning None if there is none.
 # It also adds new locations to the metadata dict if there are any.
-def make_collection(captures, metadata):
-    # A list of dicts containing locations that we've previously identified for this set of traps
-    location_groups = metadata['locations']
-
+def make_collection(captures, location_groups):
     collection = None  # This will hold the final collection if there is one
 
     # Add a new key that will hold the captures that map to this location
@@ -153,7 +159,7 @@ def make_collection(captures, metadata):
                 location_group['captures'].append(capture)
                 break
         # If it's not close to any known location, add a new location at its coordinates.
-        # This adds it to the metadata dict as well
+        # This bubbles up to the metadata dict as well
         else:
             location_groups.append({
                 'latitude': curr_lat,
@@ -259,10 +265,11 @@ def get_metadata(trap_id):
         js = json.load(f)
 
         for trapset in js.values():
-            if trap_id in trapset['traps']:
-                return trapset
+            for trap in trapset['traps']:
+                if trap['id'] == trap_id:
+                    return trapset
 
-        raise ValueError('No metadata for trap ID: ' + trap_id)
+    raise ValueError('No metadata for trap ID: ' + trap_id)
 
 
 # Write the updated metadata for a given trap_id
@@ -271,7 +278,9 @@ def write_metadata(trap_id, metadata):
         js = json.load(f)
 
         for api_key in js:
-            if trap_id in js[api_key]['traps']:
+            trap_ids = [trap['id'] for trap in js[api_key]['traps']]
+
+            if trap_id in trap_ids:
                 js[api_key] = metadata
                 break
         else:
