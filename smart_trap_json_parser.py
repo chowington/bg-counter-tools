@@ -147,26 +147,45 @@ def make_collection(captures, location_groups):
         location_group['captures'] = []
         location_group['new'] = False
 
+    # First, loop through the captures to pinpoint any possible new locations
     for capture in captures:
         curr_lat = float(capture['trap_latitude'])
         curr_lon = float(capture['trap_longitude'])
 
-        # Find the first location that this capture is close to
+        # Determine whether this capture is close to any existing locations
         for location_group in location_groups:
             distance = calculate_distance(curr_lat, curr_lon, location_group['latitude'], location_group['longitude'])
 
             if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
-                location_group['captures'].append(capture)
                 break
+
         # If it's not close to any known location, add a new location at its coordinates.
         # This bubbles up to the metadata dict as well
         else:
             location_groups.append({
                 'latitude': curr_lat,
                 'longitude': curr_lon,
-                'captures': [capture],
+                'captures': [],
                 'new': True
             })
+
+    # Next, loop through the captures and assign them to the closest locations
+    for capture in captures:
+        curr_lat = float(capture['trap_latitude'])
+        curr_lon = float(capture['trap_longitude'])
+
+        closest_location = None
+        closest_distance = math.inf
+
+        for location_group in location_groups:
+            distance = calculate_distance(curr_lat, curr_lon, location_group['latitude'], location_group['longitude'])
+
+            if distance < closest_distance:
+                closest_location = location_group
+                closest_distance = distance
+
+        # Because of the previous loop, each capture will be within 111 meters of some location
+        closest_location['captures'].append(capture)
 
     # Loop backwards so we can remove items from location_groups
     for i in range(len(location_groups) - 1, -1, -1):
