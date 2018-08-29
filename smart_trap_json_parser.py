@@ -139,9 +139,7 @@ def process_captures(captures, metadata, out_csv):
 # and returns the collection that is big enough, returning None if there is none.
 # It also adds new locations to the metadata dict if there are any.
 def make_collection(captures, location_groups):
-    collection = None  # This will hold the final collection if there is one
-
-    # Add a new key that will hold the captures that map to this location
+    # Add a new key that will hold the captures that map to each location
     # and a key that will let us know that these locations are not new (used later)
     for location_group in location_groups:
         location_group['captures'] = []
@@ -187,6 +185,8 @@ def make_collection(captures, location_groups):
         # Because of the previous loop, each capture will be within 111 meters of some location
         closest_location['captures'].append(capture)
 
+    collection = None  # This will hold the final collection if there is one
+
     # Loop backwards so we can remove items from location_groups
     for i in range(len(location_groups) - 1, -1, -1):
         location_group = location_groups[i]
@@ -194,6 +194,17 @@ def make_collection(captures, location_groups):
 
         # Allow at most one cumulative hour of missing data in a day
         if num_captures >= 92:
+            # If the location is new, average its captures' coordinates to get a more accurate lat/lon
+            if location_group['new']:
+                lats, lons = [], []
+
+                for capture in location_group['captures']:
+                    lats.append(float(capture['trap_latitude']))
+                    lons.append(float(capture['trap_longitude']))
+
+                location_group['latitude'] = round(sum(lats) / len(lats), 6)
+                location_group['longitude'] = round(sum(lons) / len(lons), 6)
+
             collection = dict(location_group)
 
         # If there weren't enough captures for a full collection and the location was new,
