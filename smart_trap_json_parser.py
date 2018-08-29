@@ -42,8 +42,6 @@ def main():
         for filename in files:
             with open(filename, 'r') as json_f:
                 js = json.load(json_f)
-                total_captures = 0   # The total number of unique captures (some are duplicates)
-                good_captures = 0  # The number of captures that end up being collated into a collection
 
                 print("Processing file " + filename)
 
@@ -53,9 +51,10 @@ def main():
                     metadata = get_metadata(trap_id)
 
                     if len(captures) != 0:
-                        total_count, good_count = process_captures(captures, metadata, out_csv)
-                        total_captures += total_count
-                        good_captures += good_count
+                        total_captures, good_captures = process_captures(captures, metadata, out_csv)
+
+                        print('Trap {}: Total captures: {} - Good captures: {} ({}%)'
+                              .format(trap_id, total_captures, good_captures, math.floor((good_captures / total_captures) * 100)))
 
                     # Warn if a trap is showing no captures. We should reasonably expect data from each trap,
                     # and if we aren't getting any, it might be worth looking into
@@ -64,9 +63,6 @@ def main():
 
                     if not args.preserve_metadata:
                         write_metadata(trap_id, metadata)
-
-                print('End of file. Total captures: {} - Good captures: {} - Tossed captures: {}'
-                      .format(total_captures, good_captures, total_captures - good_captures))
 
 
 # Takes a set of captures from a single trap and bins them into days
