@@ -23,7 +23,7 @@ python3 smart_trap_update_metadata.py update-traps [API key] [output filename]
 ```
 You should do this each time you have new data, just in case new traps were added.
 
-####Generating Darwin Core files
+#### Generating Darwin Core files
 Finally, to generate the Darwin Core files, use **smart_trap_json_parser.py**.
 ```
 python3 smart_trap_json_parser.py [output filename]
