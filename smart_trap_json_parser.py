@@ -11,13 +11,9 @@ from datetime import datetime
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap API '
-        'and creates an interchange format file from the data.')
+        'and creates Darwin Core formatted files from the data.')
 
     parser.add_argument('file', nargs='+', help='The JSON file(s) to parse.')
-    parser.add_argument('-o', '--output', default='interchange.out', help='The name of the output file.')
-    parser.add_argument('--preserve-metadata', action='store_true',
-        help='Don\'t change the metadata file in any way, neglecting to update any ordinals or locations. '
-        'Note: This feature currently isn\'t perfect, as it can also affect the CSV output.')
 
     args = parser.parse_args()
 
@@ -28,16 +24,19 @@ def main():
     args = parse_args()
 
     files = args.file
-    out_name = args.output
+    events_filename = 'sampling_events.csv'
+    occurrences_filename = 'associated_occurrences.csv'
     
-    with open(out_name, 'w') as out_file:
-        out_csv = csv.writer(out_file)
+    with open(events_filename, 'w') as events_file, open(occurrences_filename, 'w') as occurrences_file:
+        events_csv = csv.writer(events_file)
+        occurrences_csv = csv.writer(occurrences_file)
 
-        # Write the header row
-        out_csv.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
-                          'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
-                          'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
-                          'sex', 'sample_count'])
+        # Write the header rows
+        events_csv.writerow(['eventID', 'samplingProtocol', 'samplingEffort', 'sampleSizeValue', 'sampleSizeUnit',
+                             'eventDate', 'locationID', 'decimalLatitude', 'decimalLongitude', 'geodeticDatum'])
+        occurrences_csv.writerow(['eventID', 'occurrenceID', 'basisOfRecord', 'individualCount', 'organismQuantity',
+                                  'organismQuantityType', 'occurrenceStatus', 'scientificName', 'identificationQualifier', 'kingdom',
+                                  'phylum', 'class', 'order', 'family', 'taxonRank'])
     
         for filename in files:
             with open(filename, 'r') as json_f:
@@ -51,7 +50,7 @@ def main():
                     metadata = get_metadata(trap_id)
 
                     if len(captures) != 0:
-                        total_captures, good_captures = process_captures(captures, metadata, out_csv)
+                        total_captures, good_captures = process_captures(captures, metadata, events_csv, occurrences_csv)
 
                         print('Trap {}: Total captures: {} - Good captures: {} ({}%)'
                               .format(trap_id, total_captures, good_captures, math.floor((good_captures / total_captures) * 100)))
@@ -61,13 +60,12 @@ def main():
                     else:
                         print('Warning: 0 captures at trap_id: ' + trap_id)
 
-                    if not args.preserve_metadata:
-                        write_metadata(trap_id, metadata)
+                    write_metadata(trap_id, metadata)
 
 
 # Takes a set of captures from a single trap and bins them into days
 # before sending them off to be collected and written to file
-def process_captures(captures, metadata, out_csv):
+def process_captures(captures, metadata, events_csv, occurrences_csv):
     total_captures = 0  # The total number of unique captures (some are duplicates)
     good_captures = 0  # The number of captures that end up being collated into a collection
     day_captures = []  # The captures within a single day
@@ -123,7 +121,7 @@ def process_captures(captures, metadata, out_csv):
             collection = make_collection(day_captures, locations)
 
             # If a collection could be made, write it to file and count its captures as good
-            if collection and write_collection(collection, metadata, out_csv):
+            if collection and write_collection(collection, metadata, events_csv, occurrences_csv):
                 good_captures += len(collection['captures'])
 
             day_captures = []
@@ -134,12 +132,12 @@ def process_captures(captures, metadata, out_csv):
 # Takes a set of captures within the same day, bins them based on location,
 # and returns the collection that is big enough, returning None if there is none.
 # It also adds new locations to the metadata dict if there are any.
-def make_collection(captures, location_groups):
+def make_collection(captures, locations):
     # Add a new key that will hold the captures that map to each location
     # and a key that will let us know that these locations are not new (used later)
-    for location_group in location_groups:
-        location_group['captures'] = []
-        location_group['new'] = False
+    for location in locations:
+        location['captures'] = []
+        location['new'] = False
 
     # First, loop through the captures to pinpoint any possible new locations
     for capture in captures:
@@ -147,8 +145,8 @@ def make_collection(captures, location_groups):
         curr_lon = float(capture['trap_longitude'])
 
         # Determine whether this capture is close to any existing locations
-        for location_group in location_groups:
-            distance = calculate_distance(curr_lat, curr_lon, location_group['latitude'], location_group['longitude'])
+        for location in locations:
+            distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
 
             if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
                 break
@@ -156,7 +154,10 @@ def make_collection(captures, location_groups):
         # If it's not close to any known location, add a new location at its coordinates.
         # This bubbles up to the metadata dict as well
         else:
-            location_groups.append({
+            location_id = '{}-{}'.format(capture['trap_id'], len(locations))
+
+            locations.append({
+                'location_id': location_id,
                 'latitude': curr_lat,
                 'longitude': curr_lon,
                 'captures': [],
@@ -171,11 +172,11 @@ def make_collection(captures, location_groups):
         closest_location = None
         closest_distance = math.inf
 
-        for location_group in location_groups:
-            distance = calculate_distance(curr_lat, curr_lon, location_group['latitude'], location_group['longitude'])
+        for location in locations:
+            distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
 
             if distance < closest_distance:
-                closest_location = location_group
+                closest_location = location
                 closest_distance = distance
 
         # Because of the previous loop, each capture will be within 111 meters of some location
@@ -184,33 +185,33 @@ def make_collection(captures, location_groups):
     collection = None  # This will hold the final collection if there is one
 
     # Loop backwards so we can remove items from location_groups
-    for i in range(len(location_groups) - 1, -1, -1):
-        location_group = location_groups[i]
-        num_captures = len(location_group['captures'])
+    for i in range(len(locations) - 1, -1, -1):
+        location = locations[i]
+        num_captures = len(location['captures'])
 
         # Allow at most one cumulative hour of missing data in a day
         if num_captures >= 92:
             # If the location is new, average its captures' coordinates to get a more accurate lat/lon
-            if location_group['new']:
+            if location['new']:
                 lats, lons = [], []
 
-                for capture in location_group['captures']:
+                for capture in location['captures']:
                     lats.append(float(capture['trap_latitude']))
                     lons.append(float(capture['trap_longitude']))
 
-                location_group['latitude'] = round(sum(lats) / len(lats), 6)
-                location_group['longitude'] = round(sum(lons) / len(lons), 6)
+                location['latitude'] = round(sum(lats) / len(lats), 6)
+                location['longitude'] = round(sum(lons) / len(lons), 6)
 
-            collection = dict(location_group)
+            collection = dict(location)
 
         # If there weren't enough captures for a full collection and the location was new,
         # remove it so it doesn't get added to the metadata
-        elif location_group['new']:
-            del location_groups[i]
+        elif location['new']:
+            del locations[i]
 
         # Remove 'captures' and 'new'
-        del location_group['captures']
-        del location_group['new']
+        del location['captures']
+        del location['new']
 
     return collection
 
@@ -218,11 +219,10 @@ def make_collection(captures, location_groups):
 # Takes a collection containing a day's worth of captures and aggregates and writes it to file
 # if the counter was on at some point during the day. Returns True if the collection was written
 # and False if it wasn't.
-def write_collection(collection, metadata, csv):
+def write_collection(collection, metadata, events_csv, occurrences_csv):
     captures = collection['captures']
     mos_count = 0
     counter_on = False  # Stores whether the counter was turned on at some point in the day
-    used_co2 = False  # Stores whether CO2 was turned on at some point in the day
 
     trap_id = captures[0]['trap_id']
     date = make_date(captures[0]['timestamp_start'])
@@ -231,18 +231,15 @@ def write_collection(collection, metadata, csv):
     for capture in captures:
         mos_count += int(capture['medium'])  # Mosquito counts are stored in the 'medium' field
 
-        if not used_co2 and capture['co2_status']:
-            used_co2 = True
-
         if not counter_on and capture['counter_status']:
             counter_on = True
 
     # Only write the collection if the counter was on
     if counter_on:
-        if used_co2:
-            attractant = 'carbon dioxide'
+        if mos_count:
+            occurrence_status = 'present'
         else:
-            attractant = ''
+            occurrence_status = 'absent'
 
         year_string = str(date.year)
         prefix = metadata['prefix']
@@ -267,14 +264,15 @@ def write_collection(collection, metadata, csv):
 
         ordinal_string = str(ordinal).zfill(digits)
 
-        collection_id = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
-        sample_id = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
+        event_id = '{}_{}_event_{}'.format(prefix, year_string, ordinal_string)
+        occurrence_id = '{}_{}_occurrence_{}'.format(prefix, year_string, ordinal_string)
 
         # Write the collection to file
-        csv.writerow([collection_id, sample_id, date, date, trap_id,
-                      collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
-                      1, 1, 'Culicidae', 'by size', 'adult',
-                      'unknown sex', mos_count])
+        events_csv.writerow([event_id, 'BG Counter', '1 trap-day', 1, 'day',
+                             date, collection['location_id'], collection['latitude'], collection['longitude'], 'WGS84'])
+        occurrences_csv.writerow([event_id, occurrence_id, 'MachineObservation', mos_count, mos_count,
+                                 'individuals', occurrence_status, 'Culicidae', 'Machine determination based on size', 'Animalia',
+                                 'Arthropoda', 'Insecta', 'Diptera', 'Culicidae', 'family'])
 
         return True
 
