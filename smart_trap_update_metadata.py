@@ -5,6 +5,7 @@
 import json
 import argparse
 import re
+import os
 
 metadata_name = 'smart-trap-metadata.json'
 
@@ -107,6 +108,12 @@ def add_key(args):
     new_key = args.new_key
     prefix = args.prefix
     entity = args.entity
+
+    if not os.path.isfile(metadata_name):
+        print('Notice: Metadata file \'' + metadata_name + '\' not found. Creating new metadata file.')
+
+        with open(metadata_name, 'w') as metadata_f:
+            metadata_f.write('{}')
 
     with open(metadata_name, 'r+') as metadata_f:
         metadata = json.load(metadata_f)
