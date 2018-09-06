@@ -1,9 +1,9 @@
 # BG-Counter Tools
-BG-Counter Tools is set of tools that can pull data from Biogents BG-Counter smart mosquito traps and convert them into useful formats.
+BG-Counter Tools is a set of tools that can pull data from [Biogents BG-Counter](https://www.bg-counter.com/) smart mosquito traps and convert them into a Darwin Core compliant format.
 
 ## Usage
 ### Downloading Data
-To download smart trap data, use **smart_trap_download_data.py**. You'll need to provide the API key associated with your (or someone else's) Biogents account.
+To download smart trap data, use **smart_trap_download_data.py**. You'll need to provide the API key associated with your (or someone else's) Biogents account. Note that you need to have the [Python requests module](https://github.com/requests/requests#installation) installed in order for this script to work.
 ```
 python3 smart_trap_download_data.py -k [API key] -s [start time] -e [end time] -o [output filename]
 ```
@@ -30,7 +30,7 @@ Finally, to generate the Darwin Core files, use **smart_trap_json_parser.py**.
 ```
 python3 smart_trap_json_parser.py [output filename]
 ```
-This will create two files: `sampling_events.csv` and `associated_occurrences.csv`. These files use Darwin Core terms and are adapted from [the GBIF format outlined here](https://www.gbif.org/news/82852/new-darwin-core-spreadsheet-templates-simplify-data-preparation-and-publishing).
+This will create two files: `sampling_events.csv` and `associated_occurrences.csv`. These files use Darwin Core terms and are adapted from [the GBIF formats outlined here](https://www.gbif.org/news/82852/new-darwin-core-spreadsheet-templates-simplify-data-preparation-and-publishing).
 
 ## More Information
 More information about each script can be found on the [Wiki](https://github.com/chowington/bg-counter-tools/wiki).
