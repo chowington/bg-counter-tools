@@ -8,6 +8,8 @@ import json
 import math
 from datetime import datetime
 
+from common import run_with_connection
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap API '
@@ -62,7 +64,7 @@ def main():
                         print('Warning: 0 captures at trap_id: ' + trap_id)
 
                     if not args.preserve_metadata:
-                        write_metadata(trap_id, metadata)
+                        update_metadata(trap_id, metadata)
 
 
 # Takes a set of captures from a single trap and bins them into days
@@ -112,15 +114,8 @@ def process_captures(captures, metadata, out_csv):
             if len(day_captures) > 96:
                 raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(trap_id, curr_date))
 
-            # Get the locations for the current trap.
-            # get_metadata() guarantees that the trap exists within metadata
-            for trap in metadata['traps']:
-                if trap['id'] == trap_id:
-                    locations = trap['locations']
-                    break
-
             # Try to make a collection from this set of captures
-            collection = make_collection(day_captures, locations)
+            collection = make_collection(day_captures, metadata['locations'])
 
             # If a collection could be made, write it to file and count its captures as good
             if collection and write_collection(collection, metadata, out_csv):
@@ -244,15 +239,15 @@ def write_collection(collection, metadata, csv):
         else:
             attractant = ''
 
-        year_string = str(date.year)
+        year = date.year
         prefix = metadata['prefix']
 
         # If no ordinal exists for this year, make a new one
-        if year_string not in metadata['ordinals']:
-            metadata['ordinals'][year_string] = 0
+        if year not in metadata['ordinals']:
+            metadata['ordinals'][year] = 0
 
         # Increment the ordinal and store it
-        ordinal = metadata['ordinals'][year_string] = metadata['ordinals'][year_string] + 1
+        ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
 
         # The ordinal string must have a leading zero, so we're giving it a length that probably won't
         # be exceeded for a year's worth of data. If it is exceeded, make sure it has at least
@@ -263,12 +258,12 @@ def write_collection(collection, metadata, csv):
 
         if min_digits > digits:
             digits = min_digits
-            print('Warning: Large ordinal at trap_id: {} - year: {} - ordinal: {}'.format(trap_id, year_string, ordinal))
+            print('Warning: Large ordinal at trap_id: {} - year: {} - ordinal: {}'.format(trap_id, year, ordinal))
 
         ordinal_string = str(ordinal).zfill(digits)
 
-        collection_id = '{}_{}_collection_{}'.format(prefix, year_string, ordinal_string)
-        sample_id = '{}_{}_sample_{}'.format(prefix, year_string, ordinal_string)
+        collection_id = '{}_{}_collection_{}'.format(prefix, year, ordinal_string)
+        sample_id = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
 
         # Write the collection to file
         csv.writerow([collection_id, sample_id, date, date, trap_id,
@@ -285,36 +280,61 @@ def write_collection(collection, metadata, csv):
         return False
 
 
-# Get the metadata for a given trap_id
-def get_metadata(trap_id):
-    with open('smart-trap-metadata.json', 'r') as f:
-        js = json.load(f)
+# Gets metadata for a given trap_id from the database
+# Note: Call as 'get_metadata(trap_id)'; 'cur' is added by the decorator
+@run_with_connection
+def get_metadata(cur, trap_id):
+    metadata = {}
 
-        for trapset in js.values():
-            for trap in trapset['traps']:
-                if trap['id'] == trap_id:
-                    return trapset
+    # Get the prefix associated with the trap to check if the trap exists in the database
+    sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
+    cur.execute(sql, (trap_id,))
+    row = cur.fetchone()
 
-    raise ValueError('No metadata for trap ID: ' + trap_id)
+    if row:
+        metadata['prefix'] = row[0]
+    else:
+        raise ValueError('No database entry for trap ID: ' + trap_id)
+
+    # Get the locations associated with the trap
+    sql = 'SELECT latitude, longitude FROM locations WHERE trap_id = %s'
+    cur.execute(sql, (trap_id,))
+
+    metadata['locations'] = [{'latitude': row[0], 'longitude': row[1]} for row in cur.fetchall()]
+
+    # Get the ordinals associated with the prefix
+    sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
+    cur.execute(sql, (metadata['prefix'],))
+
+    metadata['ordinals'] = {row[0]: row[1] for row in cur.fetchall()}
+
+    return metadata
 
 
-# Write the updated metadata for a given trap_id
-def write_metadata(trap_id, metadata):
-    with open('smart-trap-metadata.json', 'r+') as f:
-        js = json.load(f)
+# Updates metadata in database for a given trap_id
+# Note: Call as 'update_metadata(trap_id, metadata)'; 'cur' is added by the decorator
+@run_with_connection
+def update_metadata(cur, trap_id, metadata):
+    # Check the trap_id and prefix to make sure they still exist
+    sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
+    cur.execute(sql, (trap_id,))
+    row = cur.fetchone()
 
-        for api_key in js:
-            trap_ids = [trap['id'] for trap in js[api_key]['traps']]
+    if not row:
+        raise ValueError('Metadata update failed - trap no longer exists: ' + trap_id)
+    elif row[0] != metadata['prefix']:
+        raise ValueError('Metadata update failed - prefix has changed for trap: ' + trap_id)
 
-            if trap_id in trap_ids:
-                js[api_key] = metadata
-                break
-        else:
-            raise ValueError('No metadata for trap ID: ' + trap_id)
+    # Update the locations associated with the trap
+    sql = 'INSERT INTO locations VALUES (%s, %s, %s) ON CONFLICT DO NOTHING'
+    for location in metadata['locations']:
+        cur.execute(sql, (trap_id, location['latitude'], location['longitude']))
 
-        f.seek(0)
-        f.truncate()
-        json.dump(js, f, indent=4)
+    # Update the ordinals associated with the prefix
+    sql = ('INSERT INTO ordinals VALUES (%s, %s, %s) '
+           'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
+    for year, ordinal in metadata['ordinals'].items():
+        cur.execute(sql, (metadata['prefix'], year, ordinal))
 
 
 # Attempts to create a datetime object from a string

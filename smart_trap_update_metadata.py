@@ -2,10 +2,11 @@
 # Python 3.5.2 #
 ################
 
-import json
 import argparse
+import json
 import re
-import os
+
+from common import run_with_connection
 
 metadata_name = 'smart-trap-metadata.json'
 
@@ -14,132 +15,105 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap persisent metadata.')
     subparsers = parser.add_subparsers(title='subcommands', help='Add a subcommand name followed by -h for specific help on it.')
 
+    # Update traps parser
     parser_ut = subparsers.add_parser('update-traps',
         help='Adds any new traps found in a list of files to an API key\'s trap list.')
     parser_ut.add_argument('api_key', type=api_key, help='The API key to update.')
     parser_ut.add_argument('file', nargs='+', help='The file(s) to search for new traps.')
     parser_ut.set_defaults(func=update_traps)
 
+    # Change key parser
     parser_ck = subparsers.add_parser('change-key', help='Changes the API key associated with a particular set of metadata.')
     parser_ck.add_argument('old_key', type=api_key, help='The old API key.')
     parser_ck.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ck.set_defaults(func=change_key)
 
+    # Add key parser
     parser_ak = subparsers.add_parser('add-key', help='Adds a new key and associated set of metadata.')
     parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
-    parser_ak.add_argument('entity', type=non_empty,
-        help='The entity, organization, or authority associated with this key.')
     parser_ak.add_argument('prefix', type=non_empty,
         help='The prefix to use for collection and sample IDs associated with this key.')
+
+    parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
+        description='Must provide at least one name and email address.')
+    parser_ak_info.add_argument('-on', '--org-name', type=non_empty,
+        help='The name of the organization associated with this key.')
+    parser_ak_info.add_argument('-oe', '--org-email', type=non_empty,
+        help='The email address of the organization associated with this key.')
+    parser_ak_info.add_argument('-cn', '--contact-name', type=non_empty,
+        help='The name of the person/contact associated with this key.')
+    parser_ak_info.add_argument('-ce', '--contact-email', type=non_empty,
+        help='The email address of the person/contact associated with this key.')
     parser_ak.set_defaults(func=add_key)
 
     args = parser.parse_args()
 
+    if args.func == add_key:
+        if not (args.org_name or args.contact_name):
+            parser.error('Must provide at least one name.')
+        if not (args.org_email or args.contact_email):
+            parser.error('Must provide at least one email address.')
+
     return args
 
 
-def update_traps(args):
-    api_key = args.api_key
-    files = args.file
+# Note: Call as 'update_traps(args)'; 'cur' is added by the decorator
+@run_with_connection
+def update_traps(cur, args):
+    sql = 'SELECT prefix FROM providers WHERE api_key = %s'
+    cur.execute(sql, (args.api_key,))
+    row = cur.fetchone()
 
-    new_traps = False
+    if row:
+        prefix = row[0]
+    else:
+        raise ValueError('API key does not exist.')
 
-    with open(metadata_name, 'r+') as metadata_f:
-        metadata = json.load(metadata_f)
+    sql = 'SELECT trap_id FROM traps WHERE prefix = %s'
+    cur.execute(sql, (prefix,))
 
-        if api_key not in metadata:
-            raise ValueError('API key does not exist.')
+    trap_ids = {row[0] for row in cur.fetchall()}
+    new_traps = []
 
-        traps = metadata[api_key]['traps']
-        trap_ids = [trap['id'] for trap in traps]
-        other_trap_ids = [trap['id'] for key in metadata for trap in metadata[key]['traps'] if key != api_key]
+    for filename in args.file:
+        with open(filename) as json_f:
+            js = json.load(json_f)
 
-        for filename in files:
-            with open(filename, 'r') as json_f:
-                js = json.load(json_f)
+            for trap_wrapper in js['traps']:
+                trap_id = trap_wrapper['Trap']['id']
 
-                for trap_wrapper in js['traps']:
-                    trap_id = trap_wrapper['Trap']['id']
+                if trap_id not in trap_ids:
+                    new_traps.append(trap_id)
+                    print('New trap: ' + trap_id)
 
-                    if trap_id in other_trap_ids:
-                        raise ValueError('Trap {} already exists under a different API key.'.format(trap_id))
+    if new_traps:
+        sql = 'INSERT INTO traps VALUES (%s, %s)'
+        for trap_id in new_traps:
+            cur.execute(sql, (trap_id, prefix))
 
-                    elif trap_id not in trap_ids:
-                        traps.append({
-                            'id': trap_id,
-                            'locations': []
-                        })
-
-                        new_traps = True
-                        print('Added new trap: ' + trap_id)
-
-        if not new_traps:
-            print('No new traps.')
-        else:
-            overwrite_json(metadata, metadata_f)
-
-    print('Success.')
+    else:
+        print('No new traps.')
 
 
-def change_key(args):
-    old_key = args.old_key
-    new_key = args.new_key
-
-    if old_key == new_key:
+# Note: Call as 'change_key(args)'; 'cur' is added by the decorator
+@run_with_connection
+def change_key(cur, args):
+    if args.old_key == args.new_key:
         print('Notice: New key matches old key - no change.')
 
     else:
-        with open(metadata_name, 'r+') as metadata_f:
-            metadata = json.load(metadata_f)
+        sql = 'UPDATE providers SET api_key = %s WHERE api_key = %s'
+        cur.execute(sql, (args.new_key, args.old_key))
 
-            if old_key not in metadata:
-                raise ValueError('Old key does not exist.')
-            elif new_key in metadata:
-                raise ValueError('New key already exists.')
-            else:
-                metadata[new_key] = metadata.pop(old_key)
-                metadata[new_key]['prev_keys'].append(old_key)
-
-                overwrite_json(metadata, metadata_f)
-                print('Success.')
+        if not cur.rowcount:
+            raise ValueError('Old key does not exist.')
 
 
-def add_key(args):
-    new_key = args.new_key
-    prefix = args.prefix
-    entity = args.entity
-
-    if not os.path.isfile(metadata_name):
-        print('Notice: Metadata file \'' + metadata_name + '\' not found. Creating new metadata file.')
-
-        with open(metadata_name, 'w') as metadata_f:
-            metadata_f.write('{}')
-
-    with open(metadata_name, 'r+') as metadata_f:
-        metadata = json.load(metadata_f)
-        prefixes = [metadata[key]['prefix'] for key in metadata]
-
-        if new_key in metadata:
-            raise ValueError('Key already exists.')
-        elif prefix in prefixes:
-            raise ValueError('Prefix already exists.')
-        else:
-            metadata[new_key] = {
-                'traps': [],
-                'entity': entity,
-                'prefix': prefix,
-                'ordinals': {},
-                'prev_keys': []
-            }
-
-            overwrite_json(metadata, metadata_f)
-            print('Success.')
-
-
-def overwrite_json(js, f):
-    f.seek(0)
-    f.truncate()
-    json.dump(js, f, indent=4)
+# Note: Call as 'add_key(args)'; 'cur' is added by the decorator
+@run_with_connection
+def add_key(cur, args):
+    sql = 'INSERT INTO providers VALUES (%s, %s, %s, %s, %s, %s);'
+    cur.execute(sql, (args.prefix, args.new_key, args.org_name, args.org_email, args.contact_name, args.contact_email))
 
 
 def api_key(string):
@@ -159,3 +133,4 @@ def non_empty(string):
 if __name__ == '__main__':
     args = parse_args()
     args.func(args)
+    print('Success.')
