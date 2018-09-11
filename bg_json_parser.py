@@ -33,7 +33,7 @@ def main():
     out_name = args.output
     
     with open(out_name, 'w') as out_file:
-        out_csv = csv.writer(out_file)
+        out_csv = csv.writer(out_file, lineterminator='\n')
 
         # Write the header row
         out_csv.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
