@@ -8,7 +8,7 @@ import json
 import math
 from datetime import datetime
 
-from common import run_with_connection
+from bg_common import run_with_connection
 
 
 def parse_args():

@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 
-from common import run_with_connection
+from bg_common import run_with_connection
 
 metadata_name = 'smart-trap-metadata.json'
 
