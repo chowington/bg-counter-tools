@@ -8,8 +8,6 @@ import re
 
 from bg_common import run_with_connection
 
-metadata_name = 'smart-trap-metadata.json'
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap persisent metadata.')
