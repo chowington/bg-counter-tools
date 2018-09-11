@@ -394,9 +394,10 @@ def print_status(string, stdscr):
     stdscr.refresh()
 
 
-args = parse_args()
+if __name__ == '__main__':
+    args = parse_args()
 
-if args.display:
-    curses.wrapper(main, args)
-else:
-    main(None, args)
+    if args.display:
+        curses.wrapper(main, args)
+    else:
+        main(None, args)
