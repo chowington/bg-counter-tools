@@ -289,24 +289,22 @@ def get_metadata(cur, trap_id):
     # Get the prefix associated with the trap to check if the trap exists in the database
     sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
     cur.execute(sql, (trap_id,))
-    row = cur.fetchone()
+    metadata = cur.fetchone()
 
-    if row:
-        metadata['prefix'] = row[0]
-    else:
+    if not metadata:
         raise ValueError('No database entry for trap ID: ' + trap_id)
 
     # Get the locations associated with the trap
     sql = 'SELECT latitude, longitude FROM locations WHERE trap_id = %s'
     cur.execute(sql, (trap_id,))
 
-    metadata['locations'] = [{'latitude': row[0], 'longitude': row[1]} for row in cur.fetchall()]
+    metadata['locations'] = cur.fetchall()
 
     # Get the ordinals associated with the prefix
     sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
     cur.execute(sql, (metadata['prefix'],))
 
-    metadata['ordinals'] = {row[0]: row[1] for row in cur.fetchall()}
+    metadata['ordinals'] = {row['year']: row['ordinal'] for row in cur.fetchall()}
 
     return metadata
 
@@ -322,7 +320,7 @@ def update_metadata(cur, trap_id, metadata):
 
     if not row:
         raise ValueError('Metadata update failed - trap no longer exists: ' + trap_id)
-    elif row[0] != metadata['prefix']:
+    elif row['prefix'] != metadata['prefix']:
         raise ValueError('Metadata update failed - prefix has changed for trap: ' + trap_id)
 
     # Update the locations associated with the trap

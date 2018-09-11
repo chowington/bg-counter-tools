@@ -72,7 +72,7 @@ def update_traps(cur, args):
     sql = 'SELECT trap_id FROM traps WHERE prefix = %s'
     cur.execute(sql, (prefix,))
 
-    trap_ids = {row[0] for row in cur.fetchall()}
+    trap_ids = {row['trap_id'] for row in cur.fetchall()}
     new_traps = []
 
     for filename in args.file:
