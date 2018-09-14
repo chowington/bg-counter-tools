@@ -18,18 +18,16 @@ import requests
 def parse_args():
     parser = argparse.ArgumentParser(description='Pulls smart trap data.')
 
-    group = parser.add_argument_group('arguments')
-    group.add_argument('-k', '--api-key', required=True,
-        help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
-    group.add_argument('-s', '--start-time', type=parse_date, required=True,
+    parser.add_argument('api-key', help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
+    parser.add_argument('start-time', type=parse_date,
         help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
         '"YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
-    group.add_argument('-e', '--end-time', type=parse_date, required=True,
-        help='End of the target timeframe. Same acceptable formats as above.')
-    group.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
-    group.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
-    group.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
-    group.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
+    parser.add_argument('end-time', type=parse_date, help='End of the target timeframe. Same acceptable formats as above.')
+
+    parser.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
+    parser.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
+    parser.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
+    parser.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
 
     output_group_wrapper = parser.add_argument_group('output arguments', 'Must specify exactly one of the following.')
     output_group = output_group_wrapper.add_mutually_exclusive_group(required=True)
