@@ -23,11 +23,11 @@ def get_connection_params():
 # Note: This ADDS the 'cur' parameter to the beginning of func's parameter list
 def run_with_connection(func):
     @wraps(func)
-    def connected_func(*args):
+    def connected_func(**kwargs):
         conn = pg2.connect(cursor_factory=pg2_extras.RealDictCursor, **get_connection_params())
 
         with conn, conn.cursor() as cur:
-            result = func(cur, *args)
+            result = func(cur, **kwargs)
 
         conn.close()
         return result

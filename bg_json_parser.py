@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap API '
         'and creates an interchange format file from the data.')
 
-    parser.add_argument('file', nargs='+', help='The JSON file(s) to parse.')
+    parser.add_argument('files', nargs='+', metavar='file', help='The JSON file(s) to parse.')
     parser.add_argument('-o', '--output', default='interchange.out', help='The name of the output file.')
     parser.add_argument('--preserve-metadata', action='store_true',
         help='Don\'t change the metadata file in any way, neglecting to update any ordinals or locations. '
@@ -26,13 +26,8 @@ def parse_args():
     return args
 
 
-def main():
-    args = parse_args()
-
-    files = args.file
-    out_name = args.output
-    
-    with open(out_name, 'w') as out_file:
+def parse_json(files, output, preserve_metadata=False):
+    with open(output, 'w') as out_file:
         out_csv = csv.writer(out_file, lineterminator='\n')
 
         # Write the header row
@@ -50,7 +45,7 @@ def main():
                 for trap_wrapper in js['traps']:
                     trap_id = trap_wrapper['Trap']['id']
                     captures = trap_wrapper['Capture']
-                    metadata = get_metadata(trap_id)
+                    metadata = get_metadata(trap_id=trap_id)
 
                     if len(captures) != 0:
                         total_captures, good_captures = process_captures(captures, metadata, out_csv)
@@ -63,8 +58,8 @@ def main():
                     else:
                         print('Warning: 0 captures at trap_id: ' + trap_id)
 
-                    if not args.preserve_metadata:
-                        update_metadata(trap_id, metadata)
+                    if not preserve_metadata:
+                        update_metadata(trap_id=trap_id, metadata=metadata)
 
 
 # Takes a set of captures from a single trap and bins them into days
@@ -363,4 +358,5 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 
 if __name__ == '__main__':
-    main()
+    args = vars(parse_args())
+    parse_json(**args)

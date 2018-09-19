@@ -55,15 +55,15 @@ def parse_args():
     return args
 
 
-# Note: Call as 'update_traps(args)'; 'cur' is added by the decorator
+# Note: Call as 'update_traps(api_key, file)'; 'cur' is added by the decorator
 @run_with_connection
-def update_traps(cur, args):
+def update_traps(cur, api_key, file):
     sql = 'SELECT prefix FROM providers WHERE api_key = %s'
-    cur.execute(sql, (args.api_key,))
+    cur.execute(sql, (api_key,))
     row = cur.fetchone()
 
     if row:
-        prefix = row[0]
+        prefix = row['prefix']
     else:
         raise ValueError('API key does not exist.')
 
@@ -73,7 +73,7 @@ def update_traps(cur, args):
     trap_ids = {row['trap_id'] for row in cur.fetchall()}
     new_traps = []
 
-    for filename in args.file:
+    for filename in file:
         with open(filename) as json_f:
             js = json.load(json_f)
 
@@ -93,25 +93,25 @@ def update_traps(cur, args):
         print('No new traps.')
 
 
-# Note: Call as 'change_key(args)'; 'cur' is added by the decorator
+# Note: Call as 'change_key(old_key, new_key)'; 'cur' is added by the decorator
 @run_with_connection
-def change_key(cur, args):
-    if args.old_key == args.new_key:
+def change_key(cur, old_key, new_key):
+    if old_key == new_key:
         print('Notice: New key matches old key - no change.')
 
     else:
         sql = 'UPDATE providers SET api_key = %s WHERE api_key = %s'
-        cur.execute(sql, (args.new_key, args.old_key))
+        cur.execute(sql, (new_key, old_key))
 
         if not cur.rowcount:
             raise ValueError('Old key does not exist.')
 
 
-# Note: Call as 'add_key(args)'; 'cur' is added by the decorator
+# Note: Call as 'add_key(prefix, new_key, org_name, org_email, contact_name, contact_email)'; 'cur' is added by the decorator
 @run_with_connection
-def add_key(cur, args):
+def add_key(cur, prefix, new_key, org_name=None, org_email=None, contact_name=None, contact_email=None):
     sql = 'INSERT INTO providers VALUES (%s, %s, %s, %s, %s, %s);'
-    cur.execute(sql, (args.prefix, args.new_key, args.org_name, args.org_email, args.contact_name, args.contact_email))
+    cur.execute(sql, (prefix, new_key, org_name, org_email, contact_name, contact_email))
 
 
 def api_key(string):
@@ -129,6 +129,10 @@ def non_empty(string):
 
 
 if __name__ == '__main__':
-    args = parse_args()
-    args.func(args)
+    args = vars(parse_args())
+    func = args['func']
+    del args['func']
+
+    func(**args)
+
     print('Success.')
