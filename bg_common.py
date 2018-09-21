@@ -3,6 +3,7 @@
 ################
 
 import configparser
+from datetime import datetime
 from functools import wraps
 
 import psycopg2 as pg2
@@ -33,3 +34,21 @@ def run_with_connection(func):
         return result
 
     return connected_func
+
+
+# Attempts to create a datetime object from a string
+def make_datetime(string):
+    if string == '0000-00-00 00:00:00':
+        return None
+    else:
+        return datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
+
+
+# Attempts to create a date object from a string
+def make_date(string):
+    date_time = make_datetime(string)
+
+    if date_time:
+        return date_time.date()
+    else:
+        return None

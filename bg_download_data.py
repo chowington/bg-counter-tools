@@ -13,6 +13,7 @@ import time
 import datetime as dt
 
 import requests
+import bg_common as com
 
 
 # Parses the command line arguments
@@ -203,11 +204,12 @@ def download_data(stdscr, api_key, start_time, end_time, output,
                 # Loop through the captures
                 for i in range(num_captures):
                     capture = captures[i]
-                    timestamp_start = dt.datetime.strptime(capture['timestamp_start'], '%Y-%m-%d %H:%M:%S')
+                    timestamp_start = com.make_datetime(capture['timestamp_start'])
+                    timestamp_end = com.make_datetime(capture['timestamp_end'])
 
-                    # If this capture has a timestamp after the most recent timestamp for this trap,
-                    # this and all following captures are new data
-                    if timestamp_start >= incomplete_traps[trap_id]:
+                    # If this capture has valid timestamps and has a timestamp after the most recent timestamp
+                    # for this trap, this and all following captures are new data
+                    if timestamp_start and timestamp_end and timestamp_start >= incomplete_traps[trap_id]:
                         # Add the new data to the JSON object
                         new_captures = captures[i:]
                         num_new_captures = len(new_captures)
@@ -215,7 +217,13 @@ def download_data(stdscr, api_key, start_time, end_time, output,
 
                         # Update the most recent timestamp in incomplete_traps
                         ending_timestamp = new_captures[-1]['timestamp_end']
-                        ending_datetime = dt.datetime.strptime(ending_timestamp, '%Y-%m-%d %H:%M:%S')
+                        ending_datetime = com.make_datetime(ending_timestamp)
+
+                        # If the last timestamp_end for a trap in a request is empty, this might mean that all
+                        # its timestamp_ends are empty, which is a problem
+                        if not ending_datetime:
+                            raise ValueError('Last ending timestamp is empty at capture ID: ' + capture['id'])
+
                         incomplete_traps[trap_id] = ending_datetime
 
                         # No need to loop through the rest of the captures

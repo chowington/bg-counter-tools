@@ -6,9 +6,9 @@ import argparse
 import csv
 import json
 import math
-from datetime import datetime
+import datetime as dt
 
-from bg_common import run_with_connection
+import bg_common as com
 
 
 def parse_args():
@@ -68,55 +68,63 @@ def process_captures(captures, metadata, out_csv):
     total_captures = 0  # The total number of unique captures (some are duplicates)
     good_captures = 0  # The number of captures that end up being collated into a collection
     day_captures = []  # The captures within a single day
-    prev_end_timestamp = datetime.min  # Will hold the timestamp_end of the last capture
+    prev_end_timestamp = dt.datetime.min  # Will hold the timestamp_end of the last capture
     num_captures = len(captures)
 
     for i in range(num_captures):
         capture = captures[i]
-        curr_date = make_date(capture['timestamp_start'])
 
         # We use this to do some sanity checking.
         # The ending timestamp is more consistent than the starting one
-        curr_end_timestamp = make_datetime(capture['timestamp_end'])
+        curr_end_timestamp = com.make_datetime(capture['timestamp_end'])
+        curr_start_timestamp = com.make_datetime(capture['timestamp_start'])
+        curr_date = curr_start_timestamp.date()
 
-        # If this end timestamp is later than the previous one, store the capture.
-        # We ignore the capture if it's identical to the previous one
-        if curr_end_timestamp > prev_end_timestamp:
-            day_captures.append({
-                'trap_id': capture['trap_id'],
-                'timestamp_start': capture['timestamp_start'],
-                'co2_status': capture['co2_status'],
-                'counter_status': capture['counter_status'],
-                'medium': capture['medium'],
-                'trap_latitude': capture['trap_latitude'],
-                'trap_longitude': capture['trap_longitude'],
-            })
+        valid_dates = curr_end_timestamp and curr_start_timestamp
 
+        # Count a capture if it's not a duplicate or it has invalid dates
+        if not valid_dates or curr_end_timestamp != prev_end_timestamp:
             total_captures += 1
-            prev_end_timestamp = curr_end_timestamp
 
-        # Else if this timestamp is earlier than the previous one, error out.
-        # We rely on the captures being delivered in forward chronological order
-        elif curr_end_timestamp < prev_end_timestamp:
-            raise ValueError('Capture has earlier ending timestamp than preceding capture. Capture ID: ' + capture['id'])
+        if valid_dates:
+            # If this end timestamp is later than the previous one, store the capture.
+            # We ignore the capture if it's identical to the previous one
+            # or if its timeframe is much less than 15 minutes
+            if curr_end_timestamp > prev_end_timestamp and curr_end_timestamp - curr_start_timestamp >= dt.timedelta(minutes=12):
+                day_captures.append({
+                    'trap_id': capture['trap_id'],
+                    'timestamp_start': capture['timestamp_start'],
+                    'co2_status': capture['co2_status'],
+                    'counter_status': capture['counter_status'],
+                    'medium': capture['medium'],
+                    'trap_latitude': capture['trap_latitude'],
+                    'trap_longitude': capture['trap_longitude'],
+                })
 
-        # If we're at the last capture or the next capture is from a different day, end this day
-        if i == num_captures - 1 or make_date(captures[i + 1]['timestamp_start']) != curr_date:
-            trap_id = capture['trap_id']
+                prev_end_timestamp = curr_end_timestamp
 
-            # Our current assumption is that there are no more than 96 unique captures
-            # in a day (4 per hour) - if this changes, we'll need to edit this script
-            if len(day_captures) > 96:
-                raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(trap_id, curr_date))
+            # Else if this timestamp is earlier than the previous one, error out.
+            # We rely on the captures being delivered in forward chronological order
+            elif curr_end_timestamp < prev_end_timestamp:
+                raise ValueError('Capture has earlier ending timestamp than preceding capture. Capture ID: ' + capture['id'])
 
-            # Try to make a collection from this set of captures
-            collection = make_collection(day_captures, metadata['locations'])
+            # If we're at the last capture or the next capture is from a different day, end this day
+            if i == num_captures - 1 or com.make_date(captures[i + 1]['timestamp_start']) != curr_date:
+                trap_id = capture['trap_id']
 
-            # If a collection could be made, write it to file and count its captures as good
-            if collection and write_collection(collection, metadata, out_csv):
-                good_captures += len(collection['captures'])
+                # Our current assumption is that there are no more than 96 unique captures
+                # in a day (4 per hour) - if this changes, we'll need to edit this script
+                if len(day_captures) > 96:
+                    raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(trap_id, curr_date))
 
-            day_captures = []
+                # Try to make a collection from this set of captures
+                collection = make_collection(day_captures, metadata['locations'])
+
+                # If a collection could be made, write it to file and count its captures as good
+                if collection and write_collection(collection, metadata, out_csv):
+                    good_captures += len(collection['captures'])
+
+                day_captures = []
 
     return total_captures, good_captures
 
@@ -131,27 +139,36 @@ def make_collection(captures, locations):
         location['captures'] = []
         location['new'] = False
 
-    # First, loop through the captures to pinpoint any possible new locations
-    for capture in captures:
+    # First, loop through the captures to pinpoint any possible new locations.
+    # We're looping backwards so we can delete captures if necessary
+    for i in range(len(captures) - 1, -1, -1):
+        capture = captures[i]
         curr_lat = float(capture['trap_latitude'])
         curr_lon = float(capture['trap_longitude'])
 
-        # Determine whether this capture is close to any existing locations
-        for location in locations:
-            distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
+        # If a trap can't get correct GPS data, it will either report a coordinate that is exactly 0
+        # or report its location as (51.4778, 0.0014), which is in Greenwich near the prime meridian.
+        # Either way, drop the capture
+        if curr_lat == 0 or curr_lon == 0 or (curr_lat == 51.4778 and curr_lon == 0.0014):
+            del captures[i]
 
-            if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
-                break
-
-        # If it's not close to any known location, add a new location at its coordinates.
-        # This bubbles up to the metadata dict as well
         else:
-            locations.append({
-                'latitude': curr_lat,
-                'longitude': curr_lon,
-                'captures': [],
-                'new': True
-            })
+            # Determine whether this capture is close to any existing locations
+            for location in locations:
+                distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
+
+                if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
+                    break
+
+            # If it's not close to any known location, add a new location at its coordinates.
+            # This bubbles up to the metadata dict as well
+            else:
+                locations.append({
+                    'latitude': curr_lat,
+                    'longitude': curr_lon,
+                    'captures': [],
+                    'new': True
+                })
 
     # Next, loop through the captures and assign them to the closest locations
     for capture in captures:
@@ -173,7 +190,7 @@ def make_collection(captures, locations):
 
     collection = None  # This will hold the final collection if there is one
 
-    # Loop backwards so we can remove items from location_groups
+    # Once again, loop backwards so we can remove items
     for i in range(len(locations) - 1, -1, -1):
         location = locations[i]
         num_captures = len(location['captures'])
@@ -215,7 +232,7 @@ def write_collection(collection, metadata, csv):
     used_co2 = False  # Stores whether CO2 was turned on at some point in the day
 
     trap_id = captures[0]['trap_id']
-    date = make_date(captures[0]['timestamp_start'])
+    date = com.make_date(captures[0]['timestamp_start'])
 
     # Sum all of the mosquitoes captured throughout the day and check to see whether counter and CO2 were used
     for capture in captures:
@@ -277,7 +294,7 @@ def write_collection(collection, metadata, csv):
 
 # Gets metadata for a given trap_id from the database
 # Note: Call as 'get_metadata(trap_id)'; 'cur' is added by the decorator
-@run_with_connection
+@com.run_with_connection
 def get_metadata(cur, trap_id):
     metadata = {}
 
@@ -306,7 +323,7 @@ def get_metadata(cur, trap_id):
 
 # Updates metadata in database for a given trap_id
 # Note: Call as 'update_metadata(trap_id, metadata)'; 'cur' is added by the decorator
-@run_with_connection
+@com.run_with_connection
 def update_metadata(cur, trap_id, metadata):
     # Check the trap_id and prefix to make sure they still exist
     sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
@@ -328,16 +345,6 @@ def update_metadata(cur, trap_id, metadata):
            'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
     for year, ordinal in metadata['ordinals'].items():
         cur.execute(sql, (metadata['prefix'], year, ordinal))
-
-
-# Attempts to create a datetime object from a string
-def make_datetime(string):
-    return datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
-
-
-# Attempts to create a date object from a string
-def make_date(string):
-    return make_datetime(string).date()
 
 
 # Calculate the distance in kilometers between two sets of decimal coordinates
