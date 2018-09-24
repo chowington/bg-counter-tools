@@ -31,6 +31,8 @@ def parse_args():
     parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ak.add_argument('prefix', type=non_empty,
         help='The prefix to use for collection and sample IDs associated with this key.')
+    parser_ak.add_argument('-f', '--file', help='Add the traps within the given file to the new key\'s metadata. '
+        'Equivalent to running update-traps with the file.')
 
     parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
         description='Must provide at least one name and email address.')
@@ -45,6 +47,9 @@ def parse_args():
     parser_ak.set_defaults(func=add_key)
 
     args = parser.parse_args()
+
+    if not hasattr(args, 'func'):
+        parser.error('Must provide a subcommand.')
 
     if args.func == add_key:
         if not (args.org_name or args.contact_name):
@@ -134,5 +139,8 @@ if __name__ == '__main__':
     del args['func']
 
     func(**args)
+
+    if func == add_key and args['file']:
+        update_traps(api_key=args['api_key'], file=args['file'])
 
     print('Success.')
