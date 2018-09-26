@@ -17,9 +17,7 @@ def parse_args():
 
     parser.add_argument('files', nargs='+', metavar='file', help='The JSON file(s) to parse.')
     parser.add_argument('-o', '--output', default='interchange.out', help='The name of the output file.')
-    parser.add_argument('--preserve-metadata', action='store_true',
-        help='Don\'t change the metadata file in any way, neglecting to update any ordinals or locations. '
-        'Note: This feature currently isn\'t perfect, as it can also affect the CSV output.')
+    parser.add_argument('--preserve-metadata', action='store_true', help='Don\'t change the metadata in the database in any way')
 
     args = parser.parse_args()
 
@@ -35,6 +33,8 @@ def parse_json(files, output, preserve_metadata=False):
                           'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
                           'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
                           'sex', 'sample_count'])
+
+        metadata = {}
     
         for filename in files:
             with open(filename, 'r') as json_f:
@@ -45,10 +45,29 @@ def parse_json(files, output, preserve_metadata=False):
                 for trap_wrapper in js['traps']:
                     trap_id = trap_wrapper['Trap']['id']
                     captures = trap_wrapper['Capture']
-                    metadata = get_metadata(trap_id=trap_id)
 
                     if len(captures) != 0:
-                        total_captures, good_captures = process_captures(captures, metadata, out_csv)
+                        # Get metadata for this trap
+                        for prefix, trapset in metadata.items():
+                            if trap_id in trapset['traps']:
+                                curr_prefix = prefix
+                                curr_trapset = trapset
+                                break
+                        else:
+                            new_metadata = get_metadata(trap_id=trap_id)
+                            metadata.update(new_metadata)
+                            curr_prefix = list(new_metadata.keys())[0]
+                            curr_trapset = new_metadata[curr_prefix]
+
+                        trap_metadata = {'prefix': curr_prefix, 'locations': curr_trapset['traps'][trap_id],
+                                         'ordinals': curr_trapset['ordinals']}
+
+                        # Process captures
+                        total_captures, good_captures = process_captures(captures, trap_metadata, out_csv)
+
+                        # Update master metadata
+                        curr_trapset['traps'][trap_id] = trap_metadata['locations']
+                        curr_trapset['ordinals'] = trap_metadata['ordinals']
 
                         print('Trap {}: Total captures: {} - Good captures: {} ({}%)'
                               .format(trap_id, total_captures, good_captures, math.floor((good_captures / total_captures) * 100)))
@@ -58,8 +77,8 @@ def parse_json(files, output, preserve_metadata=False):
                     else:
                         print('Warning: 0 captures at trap_id: ' + trap_id)
 
-                    if not preserve_metadata:
-                        update_metadata(trap_id=trap_id, metadata=metadata)
+        if not preserve_metadata:
+            update_metadata(metadata=metadata)
 
 
 # Takes a set of captures from a single trap and bins them into days
@@ -292,59 +311,72 @@ def write_collection(collection, metadata, csv):
         return False
 
 
-# Gets metadata for a given trap_id from the database
+# Gets metadata for the trapset containing the given trap from the database
 # Note: Call as 'get_metadata(trap_id)'; 'cur' is added by the decorator
 @com.run_with_connection
 def get_metadata(cur, trap_id):
-    metadata = {}
-
     # Get the prefix associated with the trap to check if the trap exists in the database
-    sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
-    cur.execute(sql, (trap_id,))
-    metadata = cur.fetchone()
-
-    if not metadata:
-        raise ValueError('No database entry for trap ID: ' + trap_id)
-
-    # Get the locations associated with the trap
-    sql = 'SELECT latitude, longitude FROM locations WHERE trap_id = %s'
-    cur.execute(sql, (trap_id,))
-
-    metadata['locations'] = cur.fetchall()
-
-    # Get the ordinals associated with the prefix
-    sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
-    cur.execute(sql, (metadata['prefix'],))
-
-    metadata['ordinals'] = {row['year']: row['ordinal'] for row in cur.fetchall()}
-
-    return metadata
-
-
-# Updates metadata in database for a given trap_id
-# Note: Call as 'update_metadata(trap_id, metadata)'; 'cur' is added by the decorator
-@com.run_with_connection
-def update_metadata(cur, trap_id, metadata):
-    # Check the trap_id and prefix to make sure they still exist
     sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
     cur.execute(sql, (trap_id,))
     row = cur.fetchone()
 
     if not row:
-        raise ValueError('Metadata update failed - trap no longer exists: ' + trap_id)
-    elif row['prefix'] != metadata['prefix']:
-        raise ValueError('Metadata update failed - prefix has changed for trap: ' + trap_id)
+        raise ValueError('No database entry for trap ID: ' + trap_id)
 
-    # Update the locations associated with the trap
-    sql = 'INSERT INTO locations VALUES (%s, %s, %s) ON CONFLICT DO NOTHING'
-    for location in metadata['locations']:
-        cur.execute(sql, (trap_id, location['latitude'], location['longitude']))
+    prefix = row['prefix']
+    metadata = {prefix: {'traps': {}, 'ordinals': {}}}
 
-    # Update the ordinals associated with the prefix
-    sql = ('INSERT INTO ordinals VALUES (%s, %s, %s) '
-           'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
-    for year, ordinal in metadata['ordinals'].items():
-        cur.execute(sql, (metadata['prefix'], year, ordinal))
+    # Get the locations associated with the traps
+    sql = ('SELECT t.trap_id, latitude, longitude ' 
+           'FROM traps as t LEFT OUTER JOIN locations as l ON t.trap_id = l.trap_id '
+           'WHERE t.prefix = %s')
+    cur.execute(sql, (prefix,))
+
+    rows = cur.fetchall()
+    for row in rows:
+        trap_id = row['trap_id']
+
+        if trap_id not in metadata[prefix]['traps']:
+            metadata[prefix]['traps'][trap_id] = []
+
+        if row['latitude'] and row['longitude']:
+            metadata[prefix]['traps'][trap_id].append({'latitude': row['latitude'], 'longitude': row['longitude']})
+
+    # Get the ordinals associated with the prefix
+    sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
+    cur.execute(sql, (prefix,))
+
+    metadata[prefix]['ordinals'] = {row['year']: row['ordinal'] for row in cur.fetchall()}
+
+    return metadata
+
+
+# Updates metadata in database
+# Note: Call as 'update_metadata(metadata)'; 'cur' is added by the decorator
+@com.run_with_connection
+def update_metadata(cur, metadata):
+    for prefix, trapset in metadata.items():
+        # Update the ordinals associated with the prefix
+        sql = ('INSERT INTO ordinals VALUES (%s, %s, %s) '
+               'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
+        for year, ordinal in trapset['ordinals'].items():
+            cur.execute(sql, (prefix, year, ordinal))
+
+        for trap_id, locations in trapset['traps'].items():
+            # Check the trap to make sure it still exists and has the same prefix
+            sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
+            cur.execute(sql, (trap_id,))
+            row = cur.fetchone()
+
+            if not row:
+                raise ValueError('Metadata update failed - trap no longer exists: ' + trap_id)
+            elif row['prefix'] != prefix:
+                raise ValueError('Metadata update failed - prefix has changed for trap: ' + trap_id)
+
+            # Add new locations if there are any
+            sql = 'INSERT INTO locations VALUES (%s, %s, %s) ON CONFLICT DO NOTHING'
+            for location in locations:
+                cur.execute(sql, (trap_id, location['latitude'], location['longitude']))
 
 
 # Calculate the distance in kilometers between two sets of decimal coordinates
