@@ -16,7 +16,6 @@ def main():
 
     for provider in providers:
         json_output = provider['prefix'] + '_data.json'
-        interchange_output = provider['prefix'] + '_interchange.pop'
 
         if not provider['last_download']:
             start_time = datetime.datetime(2000, 1, 1)
@@ -25,7 +24,7 @@ def main():
 
         download_data(stdscr=None, api_key=provider['api_key'], start_time=start_time, end_time=end_time, output=json_output)
         update_traps(api_key=provider['api_key'], file=[json_output])
-        parse_json(files=[json_output], output=interchange_output)
+        parse_json(files=[json_output], split_years=True)
 
         update_last_download(prefix=provider['prefix'], time=end_time)
 

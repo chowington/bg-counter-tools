@@ -7,6 +7,7 @@ import csv
 import json
 import math
 import datetime as dt
+import os
 
 import bg_common as com
 
@@ -16,26 +17,29 @@ def parse_args():
         'and creates an interchange format file from the data.')
 
     parser.add_argument('files', nargs='+', metavar='file', help='The JSON file(s) to parse.')
-    parser.add_argument('-o', '--output', default='interchange.out', help='The name of the output file.')
     parser.add_argument('--preserve-metadata', action='store_true', help='Don\'t change the metadata in the database in any way')
+
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument('-o', '--output', help='The name of the output file.')
+    output_group.add_argument('-y', '--split-years', action='store_true',
+        help='Split data from different years into separate output files. The files will be named [prefix]_[year].pop.')
 
     args = parser.parse_args()
 
     return args
 
 
-def parse_json(files, output, preserve_metadata=False):
-    with open(output, 'w') as out_file:
-        out_csv = csv.writer(out_file, lineterminator='\n')
+def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False):
+    out_csv = None
 
-        # Write the header row
-        out_csv.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
-                          'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
-                          'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
-                          'sex', 'sample_count'])
-
+    try:
         metadata = {}
-    
+
+        if split_years:
+            out_csv = {}
+        else:
+            out_csv = CSVWriter(output)
+
         for filename in files:
             with open(filename, 'r') as json_f:
                 js = json.load(json_f)
@@ -79,6 +83,16 @@ def parse_json(files, output, preserve_metadata=False):
 
         if not preserve_metadata:
             update_metadata(metadata=metadata)
+
+    finally:
+        # Close all output files
+        if out_csv:
+            if type(out_csv) is dict:
+                for prefix, years in out_csv.items():
+                    for year, csv_writer in years.items():
+                        csv_writer.close()
+            else:
+                out_csv.close()
 
 
 # Takes a set of captures from a single trap and bins them into days
@@ -139,8 +153,26 @@ def process_captures(captures, metadata, out_csv):
                 # Try to make a collection from this set of captures
                 collection = make_collection(day_captures, metadata['locations'])
 
+                # Get the correct output file
+                if type(out_csv) is dict:
+                    prefix = metadata['prefix']
+                    year = curr_date.year
+
+                    # If the correct output file doesn't exist, make it
+                    if prefix not in out_csv:
+                        out_csv[prefix] = {}
+
+                    if year not in out_csv[prefix]:
+                        filename = '{}_{}.pop'.format(prefix, year)
+                        out_csv[prefix][year] = CSVWriter(filename)
+
+                    curr_csv = out_csv[prefix][year]
+
+                else:
+                    curr_csv = out_csv
+
                 # If a collection could be made, write it to file and count its captures as good
-                if collection and write_collection(collection, metadata, out_csv):
+                if collection and write_collection(collection, metadata, curr_csv):
                     good_captures += len(collection['captures'])
 
                 day_captures = []
@@ -244,7 +276,7 @@ def make_collection(captures, locations):
 # Takes a collection containing a day's worth of captures and aggregates and writes it to file
 # if the counter was on at some point during the day. Returns True if the collection was written
 # and False if it wasn't.
-def write_collection(collection, metadata, csv):
+def write_collection(collection, metadata, out_csv):
     captures = collection['captures']
     mos_count = 0
     counter_on = False  # Stores whether the counter was turned on at some point in the day
@@ -297,10 +329,10 @@ def write_collection(collection, metadata, csv):
         sample_id = '{}_{}_sample_{}'.format(prefix, year, ordinal_string)
 
         # Write the collection to file
-        csv.writerow([collection_id, sample_id, date, date, trap_id,
-                      collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
-                      1, 1, 'Culicidae', 'by size', 'adult',
-                      'unknown sex', mos_count])
+        out_csv.writerow([collection_id, sample_id, date, date, trap_id,
+                          collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
+                          1, 1, 'Culicidae', 'by size', 'adult',
+                          'unknown sex', mos_count])
 
         return True
 
@@ -394,6 +426,37 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     distance = r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return distance
+
+
+# Handles CSV file operations
+class CSVWriter:
+    def __init__(self, filename):
+        self.filename = filename
+        self.file = open(filename, 'w')
+        self.writer = csv.writer(self.file, lineterminator='\n')
+
+        self.writer.writerow(['collection_ID', 'sample_ID', 'collection_start_date', 'collection_end_date', 'trap_ID',
+                              'GPS_latitude', 'GPS_longitude', 'location_description', 'trap_type', 'attractant',
+                              'trap_number', 'trap_duration', 'species', 'species_identification_method', 'developmental_stage',
+                              'sex', 'sample_count'])
+
+        self.empty_pos = self.file.tell()
+
+    # Wrapper for the CSV writer object's writerow function
+    def writerow(self, *args, **kwargs):
+        self.writer.writerow(*args, **kwargs)
+
+    # Closes the object's file and deletes the file if it has no data
+    def close(self):
+        if self.file.tell() == self.empty_pos:
+            remove = True
+        else:
+            remove = False
+
+        self.file.close()
+
+        if remove:
+            os.remove(self.filename)
 
 
 if __name__ == '__main__':
