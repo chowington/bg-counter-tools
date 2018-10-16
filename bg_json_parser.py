@@ -8,6 +8,7 @@ import json
 import math
 import datetime as dt
 import os
+import random
 
 import bg_common as com
 
@@ -30,6 +31,7 @@ def parse_args():
 
 
 def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False):
+    random.seed()
     out_csv = None
 
     try:
@@ -426,6 +428,35 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     distance = r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return distance
+
+
+# Obfuscates a set of GPS coordinates by translating the represented location by a distance between
+# min_distance and max_distance in a random direction. Distances should be given in meters.
+def obfuscate_coordinates(lat, lon, min_distance, max_distance):
+    # Randomly choose a distance within the parameters
+    d_m = random.uniform(min_distance, max_distance)
+
+    # Convert to nautical miles, then to radians
+    d_nm = d_m / 1852
+    d_r = (math.pi / (180 * 60)) * d_nm
+
+    # Randomly choose a true course (direction) in radians
+    tc = random.uniform(0, 2 * math.pi)
+
+    # Convert lat/lon to radians
+    lat = math.radians(lat)
+    lon = math.radians(lon)
+
+    # Calculate new coordinates
+    new_lat = math.asin(math.sin(lat) * math.cos(d_r) + math.cos(lat) * math.sin(d_r) * math.cos(tc))
+    dlon = math.atan2(math.sin(tc) * math.sin(d_r) * math.cos(lat), math.cos(d_r) - math.sin(lat) * math.sin(new_lat))
+    new_lon = ((lon - dlon + math.pi) % (2 * math.pi)) - math.pi
+
+    # Convert to degrees
+    new_lat = math.degrees(new_lat)
+    new_lon = math.degrees(new_lon)
+
+    return new_lat, new_lon
 
 
 # Handles CSV file operations
