@@ -31,7 +31,7 @@ def parse_args():
     parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ak.add_argument('prefix', type=non_empty,
         help='The prefix to use for collection and sample IDs associated with this key.')
-    parser_ak.add_argument('-f', '--file', help='Add the traps within the given file to the new key\'s metadata. '
+    parser_ak.add_argument('-f', '--file', dest='update_traps_file', help='Add the traps within the given file to the new key\'s metadata. '
         'Equivalent to running update-traps with the file.')
 
     parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
@@ -135,12 +135,21 @@ def non_empty(string):
 
 if __name__ == '__main__':
     args = vars(parse_args())
+
+    # Remove and store arguments that don't get passed to func
     func = args['func']
     del args['func']
+    filename = None
 
+    if 'update_traps_file' in args:
+        filename = args['update_traps_file']
+        del args['update_traps_file']
+
+    # Run the main function
     func(**args)
 
-    if func == add_key and args['file']:
-        update_traps(api_key=args['api_key'], file=args['file'])
+    # Update traps after adding a key if specified
+    if func == add_key and filename:
+        update_traps(api_key=args['api_key'], file=filename)
 
     print('Success.')
