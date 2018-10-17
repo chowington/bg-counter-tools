@@ -6,9 +6,7 @@ import argparse
 import json
 import re
 
-from common import run_with_connection
-
-metadata_name = 'smart-trap-metadata.json'
+from bg_common import run_with_connection
 
 
 def parse_args():
@@ -33,49 +31,62 @@ def parse_args():
     parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ak.add_argument('prefix', type=non_empty,
         help='The prefix to use for collection and sample IDs associated with this key.')
+    parser_ak.add_argument('study_tag', type=non_empty, help='The VBcv study tag associated with this provider.')
+    parser_ak.add_argument('study_tag_number', type=non_empty, help='The VBcv study tag term accession number associated with this provider.')
+    parser_ak.add_argument('obfuscate', type=non_empty,
+        help='Whether to obfuscate this provider\'s GPS data. Please provide a boolean value: yes/no, true/false, 1/0.')
+    parser_ak.add_argument('-f', '--file', dest='update_traps_file', help='Add the traps within the given file to the new key\'s metadata. '
+        'Equivalent to running update-traps with the file.')
 
     parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
-        description='Must provide at least one name and email address.')
-    parser_ak_info.add_argument('-on', '--org-name', type=non_empty,
+        description='Must provide at least one full name and email address.')
+    parser_ak_info.add_argument('--on', '--org-name', dest='org_name', type=non_empty,
         help='The name of the organization associated with this key.')
-    parser_ak_info.add_argument('-oe', '--org-email', type=non_empty,
+    parser_ak_info.add_argument('--oe', '--org-email', dest='org_email', type=non_empty,
         help='The email address of the organization associated with this key.')
-    parser_ak_info.add_argument('-cn', '--contact-name', type=non_empty,
-        help='The name of the person/contact associated with this key.')
-    parser_ak_info.add_argument('-ce', '--contact-email', type=non_empty,
+    parser_ak_info.add_argument('--ou', '--org-url', dest='org_url', type=non_empty,
+        help='The URL of the organization\'s website.')
+    parser_ak_info.add_argument('--cfn', '--contact-first-name', dest='contact_first_name', type=non_empty,
+        help='The first name of the person/contact associated with this key.')
+    parser_ak_info.add_argument('--cln', '--contact-last-name', dest='contact_last_name', type=non_empty,
+        help='The last name of the person/contact associated with this key.')
+    parser_ak_info.add_argument('--ce', '--contact-email', dest='contact_email', type=non_empty,
         help='The email address of the person/contact associated with this key.')
     parser_ak.set_defaults(func=add_key)
 
     args = parser.parse_args()
 
+    if not hasattr(args, 'func'):
+        parser.error('Must provide a subcommand.')
+
     if args.func == add_key:
-        if not (args.org_name or args.contact_name):
-            parser.error('Must provide at least one name.')
+        if not (args.org_name or args.contact_first_name or args.contact_last_name):
+            parser.error('Must provide either an organization name or a contact name.')
         if not (args.org_email or args.contact_email):
             parser.error('Must provide at least one email address.')
 
     return args
 
 
-# Note: Call as 'update_traps(args)'; 'cur' is added by the decorator
+# Note: Call as 'update_traps(api_key, file)'; 'cur' is added by the decorator
 @run_with_connection
-def update_traps(cur, args):
+def update_traps(cur, api_key, file):
     sql = 'SELECT prefix FROM providers WHERE api_key = %s'
-    cur.execute(sql, (args.api_key,))
+    cur.execute(sql, (api_key,))
     row = cur.fetchone()
 
     if row:
-        prefix = row[0]
+        prefix = row['prefix']
     else:
         raise ValueError('API key does not exist.')
 
     sql = 'SELECT trap_id FROM traps WHERE prefix = %s'
     cur.execute(sql, (prefix,))
 
-    trap_ids = {row[0] for row in cur.fetchall()}
+    trap_ids = {row['trap_id'] for row in cur.fetchall()}
     new_traps = []
 
-    for filename in args.file:
+    for filename in file:
         with open(filename) as json_f:
             js = json.load(json_f)
 
@@ -95,25 +106,28 @@ def update_traps(cur, args):
         print('No new traps.')
 
 
-# Note: Call as 'change_key(args)'; 'cur' is added by the decorator
+# Note: Call as 'change_key(old_key, new_key)'; 'cur' is added by the decorator
 @run_with_connection
-def change_key(cur, args):
-    if args.old_key == args.new_key:
+def change_key(cur, old_key, new_key):
+    if old_key == new_key:
         print('Notice: New key matches old key - no change.')
 
     else:
         sql = 'UPDATE providers SET api_key = %s WHERE api_key = %s'
-        cur.execute(sql, (args.new_key, args.old_key))
+        cur.execute(sql, (new_key, old_key))
 
         if not cur.rowcount:
             raise ValueError('Old key does not exist.')
 
 
-# Note: Call as 'add_key(args)'; 'cur' is added by the decorator
+# Note: Do not pass 'cur'; it is added by the decorator
 @run_with_connection
-def add_key(cur, args):
-    sql = 'INSERT INTO providers VALUES (%s, %s, %s, %s, %s, %s);'
-    cur.execute(sql, (args.prefix, args.new_key, args.org_name, args.org_email, args.contact_name, args.contact_email))
+def add_key(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, org_name=None, org_email=None, org_url=None,
+            contact_first_name=None, contact_last_name=None, contact_email=None):
+    sql = ('INSERT INTO providers (prefix, api_key, org_name, org_email, org_url, contact_first_name, contact_last_name, '
+           'contact_email, study_tag, study_tag_number, obfuscate) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);')
+    cur.execute(sql, [prefix, new_key, org_name, org_email, org_url, contact_first_name, contact_last_name,
+                      contact_email, study_tag, study_tag_number, obfuscate])
 
 
 def api_key(string):
@@ -131,6 +145,22 @@ def non_empty(string):
 
 
 if __name__ == '__main__':
-    args = parse_args()
-    args.func(args)
+    args = vars(parse_args())
+
+    # Remove and store arguments that don't get passed to func
+    func = args['func']
+    del args['func']
+    filename = None
+
+    if 'update_traps_file' in args:
+        filename = args['update_traps_file']
+        del args['update_traps_file']
+
+    # Run the main function
+    func(**args)
+
+    # Update traps after adding a key if specified
+    if func == add_key and filename:
+        update_traps(api_key=args['api_key'], file=filename)
+
     print('Success.')

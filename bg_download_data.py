@@ -8,28 +8,30 @@ import curses
 import json
 import math
 import os
+import re
 import time
 import datetime as dt
 
 import requests
+import bg_common as com
 
 
 # Parses the command line arguments
 def parse_args():
     parser = argparse.ArgumentParser(description='Pulls smart trap data.')
 
-    group = parser.add_argument_group('arguments')
-    group.add_argument('-k', '--api-key', required=True,
-        help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
-    group.add_argument('-s', '--start-time', type=parse_date, required=True,
+    parser.add_argument('api_key', help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
+    parser.add_argument('start_time', type=parse_date,
         help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
         '"YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
-    group.add_argument('-e', '--end-time', type=parse_date, required=True,
-        help='End of the target timeframe. Same acceptable formats as above.')
-    group.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
-    group.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
-    group.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
-    group.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
+    parser.add_argument('end_time', type=parse_date, help='End of the target timeframe. Same acceptable formats as above.')
+
+    parser.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
+    parser.add_argument('-t', '--trap', metavar='TRAP_ID', dest='target_traps', nargs='*', type=valid_trap_id,
+        help='Only get data for particular traps based on their trap IDs.')
+    parser.add_argument('--skip-empty', action='store_true', help='Don\'t write traps with no data to file.')
+    parser.add_argument('--no-display', dest='display', action='store_false', help='Don\'t show the graphical display.')
+    parser.add_argument('--split-traps', action='store_true', help='Write each trap into a separate file.')
 
     output_group_wrapper = parser.add_argument_group('output arguments', 'Must specify exactly one of the following.')
     output_group = output_group_wrapper.add_mutually_exclusive_group(required=True)
@@ -37,7 +39,7 @@ def parse_args():
     output_group.add_argument('-o', '--output',
         help='The name of the output file. If --split-traps is set, each separate file '
         'will end in "_X", where X is a unique integer.')
-    output_group.add_argument('-n', '--nested-directories', dest='directories', action='store_true',
+    output_group.add_argument('-n', '--nested-directories', action='store_true',
         help='Instead of writing to a file in the current directory, write to ./smart-trap-json/[API Key]/. '
         'The filename will be [Start Time]_[End Time].json. If --split-traps is set, write to '
         './smart-trap-json/[API Key]/[Trap ID]/. Each filename will be [Trap ID]_[Start Time]_[End Time].json')
@@ -52,18 +54,16 @@ def parse_args():
               '  may yield incomplete datasets. Continuing in 5 seconds.')
         time.sleep(5)
 
+    del args.nested_directories
+
     return args
 
 
-def main(stdscr, args):
-    api_key = args.api_key
-    start_time = args.start_time
-    end_time = args.end_time
-    display = args.display
-
+def download_data(stdscr, api_key, start_time, end_time, output,
+                  target_traps=None, split_traps=False, skip_empty=False, pretty_print=False, dry=False):
     LIMIT = 1000  # The limit of data points (captures) per trap the API can deliver
 
-    if display:
+    if stdscr:
         # Set up stuff related to curses
         curses.curs_set(False)
         graph_width = stdscr.getmaxyx()[1] - 35
@@ -71,6 +71,8 @@ def main(stdscr, args):
         gradation = duration / graph_width
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_GREEN)
+        stdscr.move(3, 2)
+        trap_ys = {}  # Will contain the y-coordinate of each trap's line in the display
 
     # Perform a request on the full duration first
     js = request_data(api_key, start_time, end_time, stdscr)
@@ -78,64 +80,74 @@ def main(stdscr, args):
     incomplete_traps = {}  # Keys will be traps with incomplete data and values will be their most recent timestamps
     trap_data = {}  # Will contain the JSON objects for each individual trap
 
-    if display:
-        trap_ys = {}  # Will contain the y-coordinate of each trap's line in the display
-
-        # Draw vertical lines
-        stdscr.vline(3, 20, '|', 2 * len(js['traps']) + 3)
-        stdscr.vline(3, 21 + graph_width, '|', 2 * len(js['traps']) + 3)
-        stdscr.addch(2, 20, '+')
-        stdscr.addch(2 * len(js['traps']) + 6, 20, '+')
+    if stdscr:
+        # Move cursor to prepare for horizontal line drawing
         stdscr.move(3, 2)
 
-    # Get info about each trap
+    # Loop over each trap
     for trap_wrapper in js['traps']:
         trap_id = trap_wrapper['Trap']['id']
-        captures = trap_wrapper['Capture']
-        num_captures = len(captures)
-        trap_data[trap_id] = trap_wrapper
 
-        if display:
-            # Draw horizontal lines
-            y, x = stdscr.getyx()
-            y += 2
-            stdscr.move(y, 2)
-            trap_ys[trap_id] = y
-            stdscr.addstr(trap_id)
-            stdscr.hline(y, 21, '-', graph_width)
+        # If no trap was specified or this trap was specified, grab its data
+        if not target_traps or trap_id in target_traps:
+            captures = trap_wrapper['Capture']
+            num_captures = len(captures)
+            trap_data[trap_id] = trap_wrapper
 
-        # If we get LIMIT capture for this trap, most likely we hit the max
-        # and the trap has more data that wasn't delivered
-        if num_captures == LIMIT:
-            # Store the most recent timestamp in incomplete_traps
-            ending_timestamp = captures[-1]['timestamp_end']
-            ending_datetime = dt.datetime.strptime(ending_timestamp, '%Y-%m-%d %H:%M:%S')
-            incomplete_traps[trap_id] = ending_datetime
+            if stdscr:
+                # Draw horizontal lines
+                y, x = stdscr.getyx()
+                y += 2
+                stdscr.move(y, 2)
+                trap_ys[trap_id] = y
+                stdscr.addstr(trap_id)
+                stdscr.hline(y, 21, '-', graph_width)
 
-            if display:
-                # Draw a white line to show the data we currently have
-                # and print the number of captures (LIMIT) to the right of the line
-                position = date_to_position(ending_datetime, start_time, gradation)
-                stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(1))
-                stdscr.addstr(y, 23 + graph_width, str(num_captures))
+            # If we get LIMIT capture for this trap, most likely we hit the max
+            # and the trap has more data that wasn't delivered
+            if num_captures == LIMIT:
+                # Store the most recent timestamp in incomplete_traps
+                ending_timestamp = captures[-1]['timestamp_end']
+                ending_datetime = dt.datetime.strptime(ending_timestamp, '%Y-%m-%d %H:%M:%S')
+                incomplete_traps[trap_id] = ending_datetime
+
+                if stdscr:
+                    # Draw a white line to show the data we currently have
+                    # and print the number of captures (LIMIT) to the right of the line
+                    position = date_to_position(ending_datetime, start_time, gradation)
+                    stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(1))
+                    stdscr.addstr(y, 23 + graph_width, str(num_captures))
+                else:
+                    percentage = date_to_percentage(ending_datetime, start_time, end_time)
+                    print('Trap {}: {}% complete.'.format(trap_id, percentage))
+
+            # If the API is ever improved so that it can deliver more than LIMIT captures,
+            # we'll have to modify this script
+            elif num_captures > LIMIT:
+                raise ValueError('More than {} (LIMIT) captures for a trap: {}.'.format(LIMIT, num_captures))
+
+            # Else, assume that we got all captures
             else:
-                percentage = date_to_percentage(ending_datetime, start_time, end_time)
-                print('Trap {}: {}% complete.'.format(trap_id, percentage))
+                if stdscr:
+                    stdscr.addstr(y, 23 + graph_width, 'Done')
+                    stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+                else:
+                    print('Trap {}: 100% complete.'.format(trap_id))
 
-        # If the API is ever improved so that it can deliver more than LIMIT captures,
-        # we'll have to modify this script
-        elif num_captures > LIMIT:
-            raise ValueError('More than {} (LIMIT) captures for a trap: {}.'.format(LIMIT, num_captures))
+    # If traps were specified, check to see if they're all there
+    if target_traps:
+        diff = set(target_traps) - set(trap_data.keys())
 
-        # Else, assume that we got all captures
-        else:
-            if display:
-                stdscr.addstr(y, 23 + graph_width, 'Done')
-                stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
-            else:
-                print('Trap {}: 100% complete.'.format(trap_id))
+        if diff:
+            raise ValueError('Trap ID(s) not found in response: ' + ', '.join(diff))
 
-    if display:
+    if stdscr:
+        # Draw vertical lines
+        stdscr.vline(3, 20, '|', 2 * len(trap_ys) + 3)
+        stdscr.vline(3, 21 + graph_width, '|', 2 * len(trap_ys) + 3)
+        stdscr.addch(2, 20, '+')
+        stdscr.addch(2 * len(trap_ys) + 6, 20, '+')
+
         stdscr.refresh()
 
     # While there are still traps with more data
@@ -148,7 +160,7 @@ def main(stdscr, args):
             if date < earliest_date:
                 earliest_date = date
 
-        if display:
+        if stdscr:
             # Move the tracking line to the earliest time
             position = date_to_position(earliest_date, start_time, gradation)
             erase_tracking_line(graph_width, trap_ys, stdscr)
@@ -160,7 +172,7 @@ def main(stdscr, args):
         new_js = request_data(api_key, earliest_date, end_time, stdscr)
 
         # Turn all previous data green
-        if display:
+        if stdscr:
             for trap_id, ending_date in incomplete_traps.items():
                 position = date_to_position(ending_date, start_time, gradation)
                 stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(2))
@@ -175,7 +187,7 @@ def main(stdscr, args):
                 num_captures = len(captures)
                 num_new_captures = 0
 
-                if display:
+                if stdscr:
                     # Get the last timestamp and draw a white bar for all new data
                     y = trap_ys[trap_id]
                     last_ending_position = date_to_position(incomplete_traps[trap_id], start_time, gradation)
@@ -192,11 +204,12 @@ def main(stdscr, args):
                 # Loop through the captures
                 for i in range(num_captures):
                     capture = captures[i]
-                    timestamp_start = dt.datetime.strptime(capture['timestamp_start'], '%Y-%m-%d %H:%M:%S')
+                    timestamp_start = com.make_datetime(capture['timestamp_start'])
+                    timestamp_end = com.make_datetime(capture['timestamp_end'])
 
-                    # If this capture has a timestamp after the most recent timestamp for this trap,
-                    # this and all following captures are new data
-                    if timestamp_start >= incomplete_traps[trap_id]:
+                    # If this capture has valid timestamps and has a timestamp after the most recent timestamp
+                    # for this trap, this and all following captures are new data
+                    if timestamp_start and timestamp_end and timestamp_start >= incomplete_traps[trap_id]:
                         # Add the new data to the JSON object
                         new_captures = captures[i:]
                         num_new_captures = len(new_captures)
@@ -204,7 +217,13 @@ def main(stdscr, args):
 
                         # Update the most recent timestamp in incomplete_traps
                         ending_timestamp = new_captures[-1]['timestamp_end']
-                        ending_datetime = dt.datetime.strptime(ending_timestamp, '%Y-%m-%d %H:%M:%S')
+                        ending_datetime = com.make_datetime(ending_timestamp)
+
+                        # If the last timestamp_end for a trap in a request is empty, this might mean that all
+                        # its timestamp_ends are empty, which is a problem
+                        if not ending_datetime:
+                            raise ValueError('Last ending timestamp is empty at capture ID: ' + capture['id'])
+
                         incomplete_traps[trap_id] = ending_datetime
 
                         # No need to loop through the rest of the captures
@@ -214,7 +233,7 @@ def main(stdscr, args):
                 if num_captures < LIMIT:
                     del incomplete_traps[trap_id]
 
-                    if display:
+                    if stdscr:
                         stdscr.hline(y, 23 + graph_width, ' ', 6)
                         stdscr.addstr(y, 23 + graph_width, 'Done')
                         stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
@@ -222,7 +241,7 @@ def main(stdscr, args):
                         print('Trap {}: 100% complete.'.format(trap_id))
 
                 else:
-                    if display:
+                    if stdscr:
                         # Print the number of new captures to the right of the trap's line
                         stdscr.hline(y, 23 + graph_width, ' ', 6)
                         stdscr.addstr(y, 23 + graph_width, '+' + str(num_new_captures))
@@ -230,17 +249,16 @@ def main(stdscr, args):
                         percentage = date_to_percentage(incomplete_traps[trap_id], start_time, end_time)
                         print('Trap {}: {}% complete. ({} new captures)'.format(trap_id, percentage, num_new_captures))
 
-    if display:
+    if stdscr:
         # Now that we're done, move the tracking line to the end
         erase_tracking_line(graph_width, trap_ys, stdscr)
         draw_tracking_line(graph_width, trap_ys, stdscr)
 
     # Unless we're doing a dry run, write the JSON objects to file
-    if not args.dry:
-        write_to_file(trap_data, api_key, start_time, end_time, args.output, args.split_traps, args.skip_empty,
-                      args.directories, args.pretty_print, stdscr)
+    if not dry:
+        write_to_file(trap_data, api_key, start_time, end_time, output, split_traps, skip_empty, pretty_print, stdscr)
 
-    if display:
+    if stdscr:
         print_status('Finished!', stdscr)
         time.sleep(1.5)
     else:
@@ -248,8 +266,8 @@ def main(stdscr, args):
 
 
 # Writes trap data to file
-def write_to_file(trap_data, api_key, start_time, end_time, output='captures', split_traps=False, skip_empty=False,
-                  directories=False, pretty_print=False, stdscr=None):
+def write_to_file(trap_data, api_key, start_time, end_time, output, split_traps=False, skip_empty=False,
+                  pretty_print=False, stdscr=None):
     if stdscr:
         print_status('Writing to file...', stdscr)
     else:
@@ -268,18 +286,19 @@ def write_to_file(trap_data, api_key, start_time, end_time, output='captures', s
         for trap_id, trap_wrapper in trap_data.items():
             # Don't write if we're skipping empty and there are no captures
             if not (skip_empty and not trap_wrapper['Capture']):
-                if directories:
+                if output:
+                    filename = '{}_{}'.format(output, i)
+                    path = './' + filename
+
+                else:
                     dir_path = './smart-trap-json/{}/{}'.format(api_key, trap_id)
 
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
 
-                    filename = '{}_{}_{}.json'.format(trap_id, start_time.strftime(date_fmt), end_time.strftime(date_fmt))
+                    filename = '{}_{}_{}.json'.format(trap_id, start_time.strftime(date_fmt),
+                                                      end_time.strftime(date_fmt))
                     path = '{}/{}'.format(dir_path, filename)
-
-                else:
-                    filename = '{}_{}'.format(output, i)
-                    path = './' + filename
 
                 with open(path, 'w') as f:
                     trap_obj = {'traps': [trap_wrapper]}
@@ -291,10 +310,13 @@ def write_to_file(trap_data, api_key, start_time, end_time, output='captures', s
         trap_obj = {'traps': []}
 
         for trap_wrapper in trap_data.values():
-            if not (args.skip_empty and not trap_wrapper['Capture']):
+            if not (skip_empty and not trap_wrapper['Capture']):
                 trap_obj['traps'].append(trap_wrapper)
 
-        if directories:
+        if output:
+            path = './' + output
+
+        else:
             dir_path = './smart-trap-json/' + api_key
 
             if not os.path.exists(dir_path):
@@ -302,9 +324,6 @@ def write_to_file(trap_data, api_key, start_time, end_time, output='captures', s
 
             filename = '{}_{}.json'.format(start_time.strftime(date_fmt), end_time.strftime(date_fmt))
             path = '{}/{}'.format(dir_path, filename)
-
-        else:
-            path = './' + args.output
 
         with open(path, 'w') as f:
             json.dump(trap_obj, f, indent=pretty_print)
@@ -319,7 +338,15 @@ def parse_date(string):
             pass
 
     raise argparse.ArgumentTypeError(
-        'Acceptable time formats ("T" is literal): "YYYY-MM-DD", "YYYY-MM-DDTHH:MM", "YYYY-MM-DDTHH:MM:SS"')
+        'Acceptable time formats ("T" is literal): "YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
+
+
+# Checks a string to see if it's a valid trap ID
+def valid_trap_id(string):
+    if not re.match('^[0-9]{15}$', string):
+        raise argparse.ArgumentTypeError('Invalid trap ID: ' + string)
+
+    return string
 
 
 # Returns data in JSON format for a given key, start time, and end time
@@ -394,9 +421,13 @@ def print_status(string, stdscr):
     stdscr.refresh()
 
 
-args = parse_args()
+if __name__ == '__main__':
+    args = vars(parse_args())
 
-if args.display:
-    curses.wrapper(main, args)
-else:
-    main(None, args)
+    display = args['display']
+    del args['display']
+
+    if display:
+        curses.wrapper(download_data, **args)
+    else:
+        download_data(None, **args)
