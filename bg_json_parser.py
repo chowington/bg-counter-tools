@@ -210,7 +210,7 @@ def make_collection(captures, locations):
             for location in locations:
                 distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
 
-                if distance < 0.111:  # 111 meters - arbitrary, but shouldn't be too small
+                if distance < 111:  # 111 meters - arbitrary, but shouldn't be too small
                     break
 
             # If it's not close to any known location, add a new location at its coordinates.
@@ -413,19 +413,23 @@ def update_metadata(cur, metadata):
                 cur.execute(sql, (trap_id, location['latitude'], location['longitude']))
 
 
-# Calculate the distance in kilometers between two sets of decimal coordinates
+# Calculates the distance in meters between two sets of decimal coordinates
 def calculate_distance(lat1, lon1, lat2, lon2):
     # Approximate radius of earth in km
     r = 6373.0
 
+    # Convert to radians
     arguments = (lat1, lon1, lat2, lon2)
     lat1, lon1, lat2, lon2 = map(math.radians, arguments)
 
+    # Get deltas
     dlon = lon2 - lon1
     dlat = lat2 - lat1
 
+    # Calculate distance in meters
     a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
     distance = r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance *= 1000
 
     return distance
 
