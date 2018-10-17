@@ -9,6 +9,7 @@ import math
 import datetime as dt
 import os
 import random
+from string import Template
 
 import bg_common as com
 
@@ -66,7 +67,7 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                             curr_trapset = new_metadata[curr_prefix]
 
                         trap_metadata = {'prefix': curr_prefix, 'locations': curr_trapset['traps'][trap_id],
-                                         'ordinals': curr_trapset['ordinals']}
+                                         'ordinals': curr_trapset['ordinals'], 'obfuscate': curr_trapset['obfuscate']}
 
                         # Process captures
                         total_captures, good_captures = process_captures(captures, trap_metadata, out_csv)
@@ -90,11 +91,20 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
         # Close all output files
         if out_csv:
             if type(out_csv) is dict:
+                projects = []
+
                 for prefix, years in out_csv.items():
                     for year, csv_writer in years.items():
-                        csv_writer.close()
+                        project_info = csv_writer.close()
+
+                        # Store the info for the valid projects that were created
+                        if project_info:
+                            projects.append(project_info)
             else:
+                projects = None
                 out_csv.close()
+
+            return projects
 
 
 # Takes a set of captures from a single trap and bins them into days
@@ -153,7 +163,7 @@ def process_captures(captures, metadata, out_csv):
                     raise ValueError('More than 96 captures in a day at trap_id: {} - date: {}'.format(trap_id, curr_date))
 
                 # Try to make a collection from this set of captures
-                collection = make_collection(day_captures, metadata['locations'])
+                collection = make_collection(day_captures, metadata['locations'], metadata['obfuscate'])
 
                 # Get the correct output file
                 if type(out_csv) is dict:
@@ -165,8 +175,7 @@ def process_captures(captures, metadata, out_csv):
                         out_csv[prefix] = {}
 
                     if year not in out_csv[prefix]:
-                        filename = '{}_{}.pop'.format(prefix, year)
-                        out_csv[prefix][year] = CSVWriter(filename)
+                        out_csv[prefix][year] = ProjectFileManager(prefix, year)
 
                     curr_csv = out_csv[prefix][year]
 
@@ -177,6 +186,9 @@ def process_captures(captures, metadata, out_csv):
                 if collection and write_collection(collection, metadata, curr_csv):
                     good_captures += len(collection['captures'])
 
+                    if isinstance(curr_csv, ProjectFileManager):
+                        curr_csv.update_dates(curr_date)
+
                 day_captures = []
 
     return total_captures, good_captures
@@ -185,7 +197,7 @@ def process_captures(captures, metadata, out_csv):
 # Takes a set of captures within the same day, bins them based on location,
 # and returns the collection that is big enough, returning None if there is none.
 # It also adds new locations to the metadata dict if there are any.
-def make_collection(captures, locations):
+def make_collection(captures, locations, obfuscate):
     # Add a new key that will hold the captures that map to each location
     # and a key that will let us know that these locations are not new (used later)
     for location in locations:
@@ -208,7 +220,7 @@ def make_collection(captures, locations):
         else:
             # Determine whether this capture is close to any existing locations
             for location in locations:
-                distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
+                distance = calculate_distance(curr_lat, curr_lon, location['true_latitude'], location['true_longitude'])
 
                 if distance < 111:  # 111 meters - arbitrary, but shouldn't be too small
                     break
@@ -217,8 +229,8 @@ def make_collection(captures, locations):
             # This bubbles up to the metadata dict as well
             else:
                 locations.append({
-                    'latitude': curr_lat,
-                    'longitude': curr_lon,
+                    'true_latitude': curr_lat,
+                    'true_longitude': curr_lon,
                     'captures': [],
                     'new': True
                 })
@@ -232,7 +244,7 @@ def make_collection(captures, locations):
         closest_distance = math.inf
 
         for location in locations:
-            distance = calculate_distance(curr_lat, curr_lon, location['latitude'], location['longitude'])
+            distance = calculate_distance(curr_lat, curr_lon, location['true_latitude'], location['true_longitude'])
 
             if distance < closest_distance:
                 closest_location = location
@@ -250,7 +262,7 @@ def make_collection(captures, locations):
 
         # Allow at most one cumulative hour of missing data in a day
         if num_captures >= 92:
-            # If the location is new, average its captures' coordinates to get a more accurate lat/lon
+            # If the location is new, average its captures' coordinates to get a more accurate lat/lon, then obfuscate if necessary
             if location['new']:
                 lats, lons = [], []
 
@@ -258,8 +270,15 @@ def make_collection(captures, locations):
                     lats.append(float(capture['trap_latitude']))
                     lons.append(float(capture['trap_longitude']))
 
-                location['latitude'] = round(sum(lats) / len(lats), 6)
-                location['longitude'] = round(sum(lons) / len(lons), 6)
+                location['true_latitude'] = round(sum(lats) / len(lats), 6)
+                location['true_longitude'] = round(sum(lons) / len(lons), 6)
+
+                if obfuscate:
+                    new_lat, new_lon = obfuscate_coordinates(location['true_latitude'], location['true_longitude'], 200, 400)
+                    location['offset_latitude'] = round(new_lat, 6)
+                    location['offset_longitude'] = round(new_lon, 6)
+                else:
+                    location['offset_latitude'], location['offset_longitude'] = location['true_latitude'], location['true_longitude']
 
             collection = dict(location)
 
@@ -332,9 +351,8 @@ def write_collection(collection, metadata, out_csv):
 
         # Write the collection to file
         out_csv.writerow([collection_id, sample_id, date, date, trap_id,
-                          collection['latitude'], collection['longitude'], '', 'BG-Counter trap catch', attractant,
-                          1, 1, 'Culicidae', 'by size', 'adult',
-                          'unknown sex', mos_count])
+                          str(collection['offset_latitude']).zfill(6), str(collection['offset_longitude']).zfill(6),
+                          '', 'BGCT', attractant, 1, 1, 'Culicidae', 'by size', 'adult', 'unknown sex', mos_count])
 
         return True
 
@@ -350,7 +368,8 @@ def write_collection(collection, metadata, out_csv):
 @com.run_with_connection
 def get_metadata(cur, trap_id):
     # Get the prefix associated with the trap to check if the trap exists in the database
-    sql = 'SELECT prefix FROM traps WHERE trap_id = %s'
+    sql = ('SELECT p.prefix, p.obfuscate FROM traps as t, providers as p '
+           'WHERE t.prefix = p.prefix AND t.trap_id = %s')
     cur.execute(sql, (trap_id,))
     row = cur.fetchone()
 
@@ -358,10 +377,10 @@ def get_metadata(cur, trap_id):
         raise ValueError('No database entry for trap ID: ' + trap_id)
 
     prefix = row['prefix']
-    metadata = {prefix: {'traps': {}, 'ordinals': {}}}
+    metadata = {prefix: {'traps': {}, 'ordinals': {}, 'obfuscate': row['obfuscate']}}
 
     # Get the locations associated with the traps
-    sql = ('SELECT t.trap_id, latitude, longitude ' 
+    sql = ('SELECT t.trap_id, true_latitude, true_longitude, offset_latitude, offset_longitude '
            'FROM traps as t LEFT OUTER JOIN locations as l ON t.trap_id = l.trap_id '
            'WHERE t.prefix = %s')
     cur.execute(sql, (prefix,))
@@ -373,8 +392,13 @@ def get_metadata(cur, trap_id):
         if trap_id not in metadata[prefix]['traps']:
             metadata[prefix]['traps'][trap_id] = []
 
-        if row['latitude'] and row['longitude']:
-            metadata[prefix]['traps'][trap_id].append({'latitude': row['latitude'], 'longitude': row['longitude']})
+        if row['true_latitude'] and row['true_longitude']:
+            metadata[prefix]['traps'][trap_id].append({
+                'true_latitude': row['true_latitude'],
+                'true_longitude': row['true_longitude'],
+                'offset_latitude': row['offset_latitude'],
+                'offset_longitude': row['offset_longitude'],
+            })
 
     # Get the ordinals associated with the prefix
     sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
@@ -383,6 +407,18 @@ def get_metadata(cur, trap_id):
     metadata[prefix]['ordinals'] = {row['year']: row['ordinal'] for row in cur.fetchall()}
 
     return metadata
+
+
+# Gets metadata about a particular data provider
+# Note: Call as 'get_provider_metadata(prefix=prefix)'; 'cur' is added by the decorator
+@com.run_with_connection
+def get_provider_metadata(cur, prefix):
+    sql = ('SELECT org_name, org_email, org_url, contact_first_name, contact_last_name, contact_email, study_tag, study_tag_number '
+           'FROM providers WHERE prefix = %s')
+    cur.execute(sql, (prefix,))
+    row = cur.fetchone()
+
+    return row
 
 
 # Updates metadata in database
@@ -408,9 +444,9 @@ def update_metadata(cur, metadata):
                 raise ValueError('Metadata update failed - prefix has changed for trap: ' + trap_id)
 
             # Add new locations if there are any
-            sql = 'INSERT INTO locations VALUES (%s, %s, %s) ON CONFLICT DO NOTHING'
+            sql = 'INSERT INTO locations VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING'
             for location in locations:
-                cur.execute(sql, (trap_id, location['latitude'], location['longitude']))
+                cur.execute(sql, (trap_id, location['true_latitude'], location['true_longitude'], location['offset_latitude'], location['offset_longitude']))
 
 
 # Calculates the distance in meters between two sets of decimal coordinates
@@ -463,6 +499,77 @@ def obfuscate_coordinates(lat, lon, min_distance, max_distance):
     return new_lat, new_lon
 
 
+# Handles the formation of all files related to a project
+class ProjectFileManager:
+    def __init__(self, prefix, year):
+        self.prefix = prefix
+        self.year = year
+        self.csv_filename = '{}_{}.pop'.format(prefix, year)
+
+        self.writer = CSVWriter(self.csv_filename)
+
+        self.first_date = dt.date.max
+        self.last_date = dt.date.min
+        self.month = None
+
+    # Wrapper for the writer's writerow function
+    def writerow(self, *args, **kwargs):
+        self.writer.writerow(*args, **kwargs)
+
+    # Updates the first date and/or last date, as appropriate
+    def update_dates(self, date):
+        if date < self.first_date:
+            self.first_date = date
+            self.month = date.month
+        if date > self.last_date:
+            self.last_date = date
+
+    # Writes the config file
+    def write_config(self):
+        filename = '{}_{}.config'.format(self.prefix, self.year)
+
+        with open(filename, 'w') as config_f:
+            config_f.write('Study_identifier : {1}_{2}_{0}_smart_trap_surveillance\n'
+                           'Sample_nomenclature : {0}_{1}_sample\n'
+                           'Collection_nomenclature : {0}_{1}_collection\n'
+                           "Study_species : 'Culicidae', 'VBsp:0003818'\n"
+                           "Study_ontology : 'adult', 'IDOMAL:0000655'\n"
+                           "Study_ontology : 'BG-Counter trap catch', 'IRO:0000143'\n"
+                           "Study_ontology : 'unknown sex', 'VBcv:0001048'\n"
+                           "Study_ontology : 'by size', 'IRO:0000145'\n"
+                           "Study_ontology : 'carbon dioxide', 'IRO:0000035'\n"
+                           "Study_ontology : 'pool', 'EFO:0000663'".format(self.prefix, self.year, str(self.month).zfill(2)))
+
+    # Writes the investigation sheet from a template
+    def write_investigation(self):
+        data = get_provider_metadata(prefix=self.prefix)
+
+        template_path = 'bg_investigation.tpl'
+        inv_path = '{}_{}.inv'.format(self.prefix, self.year)
+
+        with open(template_path) as template_f, open(inv_path, 'w') as inv_f:
+            template = Template(template_f.read())
+
+            inv_text = template.substitute(prefix=self.prefix, year=self.year, month=str(self.month).zfill(2), start_date=self.first_date,
+                                           end_date=self.last_date, org_name=data['org_name'], org_email=data['org_email'],
+                                           org_url=data['org_url'], contact_first_name=data['contact_first_name'],
+                                           contact_last_name=data['contact_last_name'], contact_email=data['contact_email'],
+                                           study_tag=data['study_tag'], study_tag_number=data['study_tag_number'])
+
+            inv_f.write(inv_text)
+
+    # Closes the object's file and deletes the file if it has no data, returning the prefix and year if there was data
+    def close(self):
+        if self.writer.close():
+            self.write_config()
+            self.write_investigation()
+
+            return {'prefix': self.prefix, 'year': self.year}
+
+        else:
+            return None
+
+
 # Handles CSV file operations
 class CSVWriter:
     def __init__(self, filename):
@@ -481,9 +588,14 @@ class CSVWriter:
     def writerow(self, *args, **kwargs):
         self.writer.writerow(*args, **kwargs)
 
+    # Returns whether the CSV file is empty of any data rows
+    def is_empty(self):
+        return self.file.tell() == self.empty_pos
+
     # Closes the object's file and deletes the file if it has no data
+    # Returns True if there was data and False if not
     def close(self):
-        if self.file.tell() == self.empty_pos:
+        if self.is_empty():
             remove = True
         else:
             remove = False
@@ -492,6 +604,8 @@ class CSVWriter:
 
         if remove:
             os.remove(self.filename)
+
+        return not remove
 
 
 if __name__ == '__main__':

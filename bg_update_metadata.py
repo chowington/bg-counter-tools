@@ -31,18 +31,26 @@ def parse_args():
     parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ak.add_argument('prefix', type=non_empty,
         help='The prefix to use for collection and sample IDs associated with this key.')
+    parser_ak.add_argument('study_tag', type=non_empty, help='The VBcv study tag associated with this provider.')
+    parser_ak.add_argument('study_tag_number', type=non_empty, help='The VBcv study tag term accession number associated with this provider.')
+    parser_ak.add_argument('obfuscate', type=non_empty,
+        help='Whether to obfuscate this provider\'s GPS data. Please provide a boolean value: yes/no, true/false, 1/0.')
     parser_ak.add_argument('-f', '--file', dest='update_traps_file', help='Add the traps within the given file to the new key\'s metadata. '
         'Equivalent to running update-traps with the file.')
 
     parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
-        description='Must provide at least one name and email address.')
-    parser_ak_info.add_argument('-on', '--org-name', type=non_empty,
+        description='Must provide at least one full name and email address.')
+    parser_ak_info.add_argument('--on', '--org-name', dest='org_name', type=non_empty,
         help='The name of the organization associated with this key.')
-    parser_ak_info.add_argument('-oe', '--org-email', type=non_empty,
+    parser_ak_info.add_argument('--oe', '--org-email', dest='org_email', type=non_empty,
         help='The email address of the organization associated with this key.')
-    parser_ak_info.add_argument('-cn', '--contact-name', type=non_empty,
-        help='The name of the person/contact associated with this key.')
-    parser_ak_info.add_argument('-ce', '--contact-email', type=non_empty,
+    parser_ak_info.add_argument('--ou', '--org-url', dest='org_url', type=non_empty,
+        help='The URL of the organization\'s website.')
+    parser_ak_info.add_argument('--cfn', '--contact-first-name', dest='contact_first_name', type=non_empty,
+        help='The first name of the person/contact associated with this key.')
+    parser_ak_info.add_argument('--cln', '--contact-last-name', dest='contact_last_name', type=non_empty,
+        help='The last name of the person/contact associated with this key.')
+    parser_ak_info.add_argument('--ce', '--contact-email', dest='contact_email', type=non_empty,
         help='The email address of the person/contact associated with this key.')
     parser_ak.set_defaults(func=add_key)
 
@@ -52,8 +60,8 @@ def parse_args():
         parser.error('Must provide a subcommand.')
 
     if args.func == add_key:
-        if not (args.org_name or args.contact_name):
-            parser.error('Must provide at least one name.')
+        if not (args.org_name or args.contact_first_name or args.contact_last_name):
+            parser.error('Must provide either an organization name or a contact name.')
         if not (args.org_email or args.contact_email):
             parser.error('Must provide at least one email address.')
 
@@ -112,11 +120,14 @@ def change_key(cur, old_key, new_key):
             raise ValueError('Old key does not exist.')
 
 
-# Note: Call as 'add_key(prefix, new_key, org_name, org_email, contact_name, contact_email)'; 'cur' is added by the decorator
+# Note: Do not pass 'cur'; it is added by the decorator
 @run_with_connection
-def add_key(cur, prefix, new_key, org_name=None, org_email=None, contact_name=None, contact_email=None):
-    sql = 'INSERT INTO providers VALUES (%s, %s, %s, %s, %s, %s);'
-    cur.execute(sql, (prefix, new_key, org_name, org_email, contact_name, contact_email))
+def add_key(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, org_name=None, org_email=None, org_url=None,
+            contact_first_name=None, contact_last_name=None, contact_email=None):
+    sql = ('INSERT INTO providers (prefix, api_key, org_name, org_email, org_url, contact_first_name, contact_last_name, '
+           'contact_email, study_tag, study_tag_number, obfuscate) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);')
+    cur.execute(sql, [prefix, new_key, org_name, org_email, org_url, contact_first_name, contact_last_name,
+                      contact_email, study_tag, study_tag_number, obfuscate])
 
 
 def api_key(string):

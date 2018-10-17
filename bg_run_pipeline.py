@@ -3,6 +3,8 @@
 ################
 
 import datetime
+import os
+import subprocess
 
 from bg_download_data import download_data
 from bg_update_metadata import update_traps
@@ -24,8 +26,32 @@ def main():
 
         download_data(stdscr=None, api_key=provider['api_key'], start_time=start_time, end_time=end_time, output=json_output)
         update_traps(api_key=provider['api_key'], file=[json_output])
-        parse_json(files=[json_output], split_years=True)
+        projects = parse_json(files=[json_output], split_years=True)
 
+        for project in projects:
+            # Define filenames
+            project_id = '{}_{}'.format(project['prefix'], project['year'])
+            project_dir = './' + project_id + '/'
+            interchange_name = project_id + '.pop'
+            config_name = project_id + '.config'
+            investigation_name = project_id + '.inv'
+
+            # Create ISA sheets
+            subprocess.run(['perl', 'PopBio-interchange-format/PopBioWizard.pl', '--file', interchange_name, '--config', config_name,
+                            '--sample', '--collection', '--species', '--bg-counter'])
+
+            # Move sheets to the project directory
+            if not os.path.exists(project_dir):
+                os.makedirs(project_dir)
+
+            perl_outputs = ['a_collection.csv', 'a_species.csv', 's_sample.csv']
+
+            for output in perl_outputs:
+                os.rename(output, project_dir + output)
+
+            os.rename(investigation_name, project_dir + 'i_investigation.csv')
+
+        # Update the last download time
         update_last_download(prefix=provider['prefix'], time=end_time)
 
 
