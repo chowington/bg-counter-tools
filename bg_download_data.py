@@ -376,9 +376,9 @@ def request_data(api_key, start_time, end_time, screen):
         print('Performing request...')
 
     data = {
-        'data[user_id]' : api_key,
-        'data[startTime]' : start_time.isoformat(' '),
-        'data[endTime]' : end_time.isoformat(' ')
+        'data[user_id]': api_key,
+        'data[startTime]': start_time.isoformat(' '),
+        'data[endTime]': end_time.isoformat(' ')
     }
 
     response = requests.post('http://live.bg-counter.com/traps/exportTrapCapturesForTimeFrame.json', data)
