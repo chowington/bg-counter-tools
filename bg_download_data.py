@@ -186,8 +186,8 @@ def download_data(stdscr, api_key, start_time, end_time, output,
             draw_tracking_line(position, trap_ys, pad)
 
         # Perform a request from the earliest time to the original end time
-        # with a half-second delay so we don't overload the server
-        time.sleep(0.5)
+        # with a second delay so we don't overload the server
+        time.sleep(1)
         new_js = request_data(api_key, earliest_date, end_time, pad)
 
         # Turn all previous data green
