@@ -64,15 +64,27 @@ def download_data(stdscr, api_key, start_time, end_time, output,
     LIMIT = 1000  # The limit of data points (captures) per trap the API can deliver
 
     if stdscr:
+        # Get screen size
+        max_y, max_x = stdscr.getmaxyx()
+
+        # Check whether the window is big enough
+        if max_x < 40:
+            raise ValueError('Window is too narrow. Please widen to at least 40 columns or use --no-display.')
+
         # Set up stuff related to curses
         curses.curs_set(False)
-        graph_width = stdscr.getmaxyx()[1] - 35
+        stdscr.nodelay(True)
+        graph_width = max_x - 35
         duration = end_time - start_time
         gradation = duration / graph_width
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_GREEN)
-        stdscr.move(3, 2)
         trap_ys = {}  # Will contain the y-coordinate of each trap's line in the display
+
+        # Create the pad we will draw on
+        pad = Pad(stdscr, max_y, max_x)
+    else:
+        pad = None
 
     # Perform a request on the full duration first
     js = request_data(api_key, start_time, end_time, stdscr)
@@ -81,8 +93,15 @@ def download_data(stdscr, api_key, start_time, end_time, output,
     trap_data = {}  # Will contain the JSON objects for each individual trap
 
     if stdscr:
+        # Determine whether the pad needs to be resized
+        num_traps = len(js['traps'])
+        min_height = 8 + 2 * num_traps
+
+        if min_height > max_y:
+            pad.resize(min_height, max_x)
+
         # Move cursor to prepare for horizontal line drawing
-        stdscr.move(3, 2)
+        pad.move(3, 2)
 
     # Loop over each trap
     for trap_wrapper in js['traps']:
@@ -96,12 +115,12 @@ def download_data(stdscr, api_key, start_time, end_time, output,
 
             if stdscr:
                 # Draw horizontal lines
-                y, x = stdscr.getyx()
+                y, x = pad.getyx()
                 y += 2
-                stdscr.move(y, 2)
+                pad.move(y, 2)
                 trap_ys[trap_id] = y
-                stdscr.addstr(trap_id)
-                stdscr.hline(y, 21, '-', graph_width)
+                pad.addstr(trap_id)
+                pad.hline(y, 21, '-', graph_width)
 
             # If we get LIMIT capture for this trap, most likely we hit the max
             # and the trap has more data that wasn't delivered
@@ -115,8 +134,8 @@ def download_data(stdscr, api_key, start_time, end_time, output,
                     # Draw a white line to show the data we currently have
                     # and print the number of captures (LIMIT) to the right of the line
                     position = date_to_position(ending_datetime, start_time, gradation)
-                    stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(1))
-                    stdscr.addstr(y, 23 + graph_width, str(num_captures))
+                    pad.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(1))
+                    pad.addstr(y, 23 + graph_width, str(num_captures))
                 else:
                     percentage = date_to_percentage(ending_datetime, start_time, end_time)
                     print('Trap {}: {}% complete.'.format(trap_id, percentage))
@@ -129,8 +148,8 @@ def download_data(stdscr, api_key, start_time, end_time, output,
             # Else, assume that we got all captures
             else:
                 if stdscr:
-                    stdscr.addstr(y, 23 + graph_width, 'Done')
-                    stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+                    pad.addstr(y, 23 + graph_width, 'Done')
+                    pad.hline(y, 21, ' ', graph_width, curses.color_pair(2))
                 else:
                     print('Trap {}: 100% complete.'.format(trap_id))
 
@@ -143,12 +162,12 @@ def download_data(stdscr, api_key, start_time, end_time, output,
 
     if stdscr:
         # Draw vertical lines
-        stdscr.vline(3, 20, '|', 2 * len(trap_ys) + 3)
-        stdscr.vline(3, 21 + graph_width, '|', 2 * len(trap_ys) + 3)
-        stdscr.addch(2, 20, '+')
-        stdscr.addch(2 * len(trap_ys) + 6, 20, '+')
+        pad.vline(3, 20, '|', 2 * len(trap_ys) + 3)
+        pad.vline(3, 21 + graph_width, '|', 2 * len(trap_ys) + 3)
+        pad.addch(2, 20, '+')
+        pad.addch(2 * len(trap_ys) + 6, 20, '+')
 
-        stdscr.refresh()
+        pad.refresh()
 
     # While there are still traps with more data
     while incomplete_traps:
@@ -163,21 +182,21 @@ def download_data(stdscr, api_key, start_time, end_time, output,
         if stdscr:
             # Move the tracking line to the earliest time
             position = date_to_position(earliest_date, start_time, gradation)
-            erase_tracking_line(graph_width, trap_ys, stdscr)
-            draw_tracking_line(position, trap_ys, stdscr)
+            erase_tracking_line(graph_width, trap_ys, pad)
+            draw_tracking_line(position, trap_ys, pad)
 
         # Perform a request from the earliest time to the original end time
         # with a half-second delay so we don't overload the server
         time.sleep(0.5)
-        new_js = request_data(api_key, earliest_date, end_time, stdscr)
+        new_js = request_data(api_key, earliest_date, end_time, pad)
 
         # Turn all previous data green
         if stdscr:
             for trap_id, ending_date in incomplete_traps.items():
                 position = date_to_position(ending_date, start_time, gradation)
-                stdscr.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(2))
+                pad.hline(trap_ys[trap_id], 21, ' ', position, curses.color_pair(2))
     
-            stdscr.refresh()
+            pad.refresh()
 
         for trap_wrapper in new_js['traps']:
             trap_id = trap_wrapper['Trap']['id']
@@ -194,8 +213,8 @@ def download_data(stdscr, api_key, start_time, end_time, output,
                     ending_timestamp = captures[-1]['timestamp_end']
                     ending_datetime = dt.datetime.strptime(ending_timestamp, '%Y-%m-%d %H:%M:%S')
                     position = date_to_position(ending_datetime, start_time, gradation)
-                    stdscr.hline(y, last_ending_position + 21, ' ', position - last_ending_position, curses.color_pair(1))
-                    stdscr.refresh()
+                    pad.hline(y, last_ending_position + 21, ' ', position - last_ending_position, curses.color_pair(1))
+                    pad.refresh()
 
                 # Check if there are more than LIMIT captures for the same reason as before
                 if num_captures > LIMIT:
@@ -234,32 +253,32 @@ def download_data(stdscr, api_key, start_time, end_time, output,
                     del incomplete_traps[trap_id]
 
                     if stdscr:
-                        stdscr.hline(y, 23 + graph_width, ' ', 6)
-                        stdscr.addstr(y, 23 + graph_width, 'Done')
-                        stdscr.hline(y, 21, ' ', graph_width, curses.color_pair(2))
+                        pad.hline(y, 23 + graph_width, ' ', 6)
+                        pad.addstr(y, 23 + graph_width, 'Done')
+                        pad.hline(y, 21, ' ', graph_width, curses.color_pair(2))
                     else:
                         print('Trap {}: 100% complete.'.format(trap_id))
 
                 else:
                     if stdscr:
                         # Print the number of new captures to the right of the trap's line
-                        stdscr.hline(y, 23 + graph_width, ' ', 6)
-                        stdscr.addstr(y, 23 + graph_width, '+' + str(num_new_captures))
+                        pad.hline(y, 23 + graph_width, ' ', 6)
+                        pad.addstr(y, 23 + graph_width, '+' + str(num_new_captures))
                     else:
                         percentage = date_to_percentage(incomplete_traps[trap_id], start_time, end_time)
                         print('Trap {}: {}% complete. ({} new captures)'.format(trap_id, percentage, num_new_captures))
 
     if stdscr:
         # Now that we're done, move the tracking line to the end
-        erase_tracking_line(graph_width, trap_ys, stdscr)
-        draw_tracking_line(graph_width, trap_ys, stdscr)
+        erase_tracking_line(graph_width, trap_ys, pad)
+        draw_tracking_line(graph_width, trap_ys, pad)
 
     # Unless we're doing a dry run, write the JSON objects to file
     if not dry:
-        write_to_file(trap_data, api_key, start_time, end_time, output, split_traps, skip_empty, pretty_print, stdscr)
+        write_to_file(trap_data, api_key, start_time, end_time, output, split_traps, skip_empty, pretty_print, pad)
 
     if stdscr:
-        print_status('Finished!', stdscr)
+        print_status('Finished!', pad)
         time.sleep(1.5)
     else:
         print('Finished.')
@@ -267,9 +286,9 @@ def download_data(stdscr, api_key, start_time, end_time, output,
 
 # Writes trap data to file
 def write_to_file(trap_data, api_key, start_time, end_time, output, split_traps=False, skip_empty=False,
-                  pretty_print=False, stdscr=None):
-    if stdscr:
-        print_status('Writing to file...', stdscr)
+                  pretty_print=False, screen=None):
+    if screen:
+        print_status('Writing to file...', screen)
     else:
         print('Writing to file...')
 
@@ -350,9 +369,9 @@ def valid_trap_id(string):
 
 
 # Returns data in JSON format for a given key, start time, and end time
-def request_data(api_key, start_time, end_time, stdscr=None):
-    if stdscr:
-        print_status('Performing request...', stdscr)
+def request_data(api_key, start_time, end_time, screen):
+    if screen:
+        print_status('Performing request...', screen)
     else:
         print('Performing request...')
 
@@ -367,8 +386,8 @@ def request_data(api_key, start_time, end_time, stdscr=None):
 
     js = json.loads(response.text, object_pairs_hook=collections.OrderedDict)
 
-    if stdscr:
-        print_status('Done.', stdscr)
+    if screen:
+        print_status('Done.', screen)
     else:
         print('Done.')
 
@@ -386,39 +405,85 @@ def date_to_percentage(datetime, start_time, end_time):
 
 
 # Draws the tracking line at a certain position on the graph
-def draw_tracking_line(position, trap_ys, stdscr):
+def draw_tracking_line(position, trap_ys, screen):
     position += 21
 
-    stdscr.addch(2, position, '+')
-    stdscr.vline(3, position, '|', 2)
+    screen.addch(2, position, '+')
+    screen.vline(3, position, '|', 2)
 
     for trap_id, y in trap_ys.items():
-        stdscr.addch(y + 1, position, '|')
+        screen.addch(y + 1, position, '|')
 
-    stdscr.addch(2 * len(trap_ys) + 5, position, '|')
-    stdscr.addch(2 * len(trap_ys) + 6, position, '+')
-    stdscr.refresh()
+    screen.addch(2 * len(trap_ys) + 5, position, '|')
+    screen.addch(2 * len(trap_ys) + 6, position, '+')
+    screen.refresh()
 
 
 # Erases the tracking line
-def erase_tracking_line(graph_width, trap_ys, stdscr):
-    stdscr.hline(2, 20, ' ', graph_width + 2)
-    stdscr.hline(3, 21, ' ', graph_width)
-    stdscr.hline(4, 21, ' ', graph_width)
+def erase_tracking_line(graph_width, trap_ys, screen):
+    screen.hline(2, 20, ' ', graph_width + 2)
+    screen.hline(3, 21, ' ', graph_width)
+    screen.hline(4, 21, ' ', graph_width)
 
     for trap_id, y in trap_ys.items():
-        stdscr.hline(y + 1, 21, ' ', graph_width)
+        screen.hline(y + 1, 21, ' ', graph_width)
 
-    stdscr.hline(2 * len(trap_ys) + 5, 21, ' ', graph_width)
-    stdscr.hline(2 * len(trap_ys) + 6, 20, ' ', graph_width + 2)
-    stdscr.refresh()
+    screen.hline(2 * len(trap_ys) + 5, 21, ' ', graph_width)
+    screen.hline(2 * len(trap_ys) + 6, 20, ' ', graph_width + 2)
+    screen.refresh()
 
 
 # Prints string at the top left of the window
-def print_status(string, stdscr):
-    stdscr.hline(1, 2, ' ', 30)
-    stdscr.addstr(1, 2, string)
-    stdscr.refresh()
+def print_status(string, screen):
+    screen.hline(1, 2, ' ', 30)
+    screen.addstr(1, 2, string)
+    screen.refresh()
+
+
+# Extends curses' window class to handle pads larger than the screen size
+class Pad:
+    def __init__(self, stdscr, nlines, ncols):
+        self.stdscr = stdscr
+        self.pad = curses.newpad(nlines, ncols)
+        self.scr_height, self.scr_width = stdscr.getmaxyx()
+        self.top_shown = self.max_top_shown = 0
+
+    def __getattr__(self, item):
+        return getattr(self.pad, item)
+
+    def resize(self, nlines, ncols):
+        self.pad.resize(nlines, ncols)
+        self.max_top_shown = nlines - self.scr_height
+
+    # Reads keyboard input to determine whether the pad needs to be scrolled
+    def check_input(self):
+        pages = 0
+        code = self.stdscr.getch()
+
+        # Find the cumulative result of the key presses
+        while code >= 0:
+            if code == curses.KEY_UP:
+                pages -= 1
+            elif code == curses.KEY_DOWN:
+                pages += 1
+
+            code = self.stdscr.getch()
+
+        if pages != 0:
+            self.scroll(pages)
+
+    # Scroll the pad some number of pages
+    # Positive scrolls down and negative scrolls up
+    def scroll(self, num_pages):
+        self.top_shown = self.top_shown + num_pages * self.scr_height
+
+        self.top_shown = max(self.top_shown, 0)
+        self.top_shown = min(self.top_shown, self.max_top_shown)
+
+    # Refresh the screen, checking for input before doing so
+    def refresh(self):
+        self.check_input()
+        self.pad.refresh(self.top_shown, 0, 0, 0, self.scr_height - 1, self.scr_width)
 
 
 if __name__ == '__main__':
