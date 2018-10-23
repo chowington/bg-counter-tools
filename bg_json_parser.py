@@ -34,9 +34,9 @@ def parse_args():
 def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False):
     random.seed()
     out_csv = None
+    metadata = {}
 
     try:
-        metadata = {}
 
         if split_years:
             out_csv = {}
@@ -84,9 +84,6 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                     else:
                         print('Warning: 0 captures at trap_id: ' + trap_id)
 
-        if not preserve_metadata:
-            update_metadata(metadata=metadata)
-
     finally:
         # Close all output files
         if out_csv:
@@ -103,6 +100,9 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
             else:
                 projects = None
                 out_csv.close()
+
+            if not preserve_metadata:
+                update_metadata(metadata=metadata)
 
             return projects
 
