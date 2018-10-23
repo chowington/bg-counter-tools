@@ -384,7 +384,14 @@ def request_data(api_key, start_time, end_time, screen):
     response = requests.post('http://live.bg-counter.com/traps/exportTrapCapturesForTimeFrame.json', data)
     response.raise_for_status()
 
-    js = json.loads(response.text, object_pairs_hook=collections.OrderedDict)
+    try:
+        js = json.loads(response.text, object_pairs_hook=collections.OrderedDict)
+    except json.JSONDecodeError:
+        if screen:
+            curses.endwin()
+
+        print('Response text:\n\'' + response.text + '\'\n')
+        raise
 
     if screen:
         print_status('Done.', screen)
