@@ -11,12 +11,18 @@ import time
 from bg_download_data import download_data
 from bg_update_metadata import update_traps
 from bg_json_parser import parse_json
-from bg_common import run_with_connection
+import bg_common as com
 
 
 # Parses the command line arguments
 def parse_args():
     parser = argparse.ArgumentParser(description='Runs the full BG-Counter Tools pipeline.')
+
+    parser.add_argument('-s', '--start-time', type=com.parse_date,
+                        help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
+                        '"YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
+    parser.add_argument('-e', '--end-time', type=com.parse_date,
+                        help='End of the target timeframe. Same acceptable formats as above.')
 
     mutex_group = parser.add_mutually_exclusive_group()
     mutex_group.add_argument('-i', '--include', nargs='+',
@@ -29,7 +35,7 @@ def parse_args():
     return args
 
 
-def run_pipeline(include=None, exclude=None):
+def run_pipeline(include=None, exclude=None, start_time=None, end_time=None):
     providers = get_providers()
     prefixes = {provider['prefix'] for provider in providers}
 
@@ -51,7 +57,10 @@ def run_pipeline(include=None, exclude=None):
 
         providers = [provider for provider in providers if provider['prefix'] in chosen_prefixes]
 
-    end_time = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time())
+    # If the end time was not provided, set it to the beginning of yesterday
+    if not end_time:
+        end_time = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time())
+
     extras_dir = './extras/'
 
     if not os.path.exists(extras_dir):
@@ -60,10 +69,12 @@ def run_pipeline(include=None, exclude=None):
     for provider in providers:
         json_output = provider['prefix'] + '_data.json'
 
-        if not provider['last_download']:
-            start_time = dt.datetime(2000, 1, 1)
-        else:
-            start_time = provider['last_download']
+        # Get the last download time or set it if it doesn't exist
+        if not start_time:
+            if not provider['last_download']:
+                start_time = dt.datetime(2000, 1, 1)
+            else:
+                start_time = provider['last_download']
 
         # If we didn't already get data from this provider today
         if end_time > start_time:
@@ -119,7 +130,7 @@ def run_pipeline(include=None, exclude=None):
 
 # Get the prefixes and API keys for providers that have an API key
 # Note: Call as 'get_providers()'; 'cur' is added by the decorator
-@run_with_connection
+@com.run_with_connection
 def get_providers(cur):
     sql = 'SELECT prefix, api_key, last_download FROM providers WHERE api_key IS NOT NULL'
     cur.execute(sql)
@@ -130,7 +141,7 @@ def get_providers(cur):
 
 # Update the last download time for a provider
 # Note: Call as 'update_last_download(prefix=prefix, time=time)'; 'cur' is added by the decorator
-@run_with_connection
+@com.run_with_connection
 def update_last_download(cur, prefix, time):
     sql = 'UPDATE providers SET last_download = %s WHERE prefix = %s'
     cur.execute(sql, (time, prefix))

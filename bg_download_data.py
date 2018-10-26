@@ -21,10 +21,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Pulls smart trap data.')
 
     parser.add_argument('api_key', help='The 32-character API key taken from the Biogents user dashboard. Keep dashes.')
-    parser.add_argument('start_time', type=parse_date,
+    parser.add_argument('start_time', type=com.parse_date,
         help='Beginning of the target timeframe. Acceptable time formats ("T" is literal): '
         '"YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
-    parser.add_argument('end_time', type=parse_date, help='End of the target timeframe. Same acceptable formats as above.')
+    parser.add_argument('end_time', type=com.parse_date, help='End of the target timeframe. Same acceptable formats as above.')
 
     parser.add_argument('-p', '--pretty-print', action='store_const', const=4, default=None, help='Pretty print to file.')
     parser.add_argument('-t', '--trap', metavar='TRAP_ID', dest='target_traps', nargs='*', type=valid_trap_id,
@@ -346,18 +346,6 @@ def write_to_file(trap_data, api_key, start_time, end_time, output, split_traps=
 
         with open(path, 'w') as f:
             json.dump(trap_obj, f, indent=pretty_print)
-
-
-# Tries to create a datetime from a string and raises an argparse error if unsuccessful
-def parse_date(string):
-    for fmt in ('%Y-%m-%dT%H-%M-%S', '%Y-%m-%dT%H-%M', '%Y-%m-%d'):
-        try:
-            return dt.datetime.strptime(string, fmt)
-        except ValueError:
-            pass
-
-    raise argparse.ArgumentTypeError(
-        'Acceptable time formats ("T" is literal): "YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
 
 
 # Checks a string to see if it's a valid trap ID

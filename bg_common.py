@@ -2,8 +2,9 @@
 # Python 3.5.2 #
 ################
 
+import argparse
 import configparser
-from datetime import datetime
+import datetime as dt
 from functools import wraps
 
 import psycopg2 as pg2
@@ -41,7 +42,7 @@ def make_datetime(string):
     if string == '0000-00-00 00:00:00':
         return None
     else:
-        return datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
+        return dt.datetime.strptime(string, '%Y-%m-%d %H:%M:%S')
 
 
 # Attempts to create a date object from a string
@@ -52,3 +53,15 @@ def make_date(string):
         return date_time.date()
     else:
         return None
+
+
+# Tries to create a datetime from a string and raises an argparse error if unsuccessful
+def parse_date(string):
+    for fmt in ('%Y-%m-%dT%H-%M-%S', '%Y-%m-%dT%H-%M', '%Y-%m-%d'):
+        try:
+            return dt.datetime.strptime(string, fmt)
+        except ValueError:
+            pass
+
+    raise argparse.ArgumentTypeError(
+        'Acceptable time formats ("T" is literal): "YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
