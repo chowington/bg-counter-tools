@@ -2,6 +2,7 @@
 # Python 3.5.2 #
 ################
 
+import argparse
 import datetime as dt
 import os
 import subprocess
@@ -13,8 +14,43 @@ from bg_json_parser import parse_json
 from bg_common import run_with_connection
 
 
-def main():
+# Parses the command line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description='Runs the full BG-Counter Tools pipeline.')
+
+    mutex_group = parser.add_mutually_exclusive_group()
+    mutex_group.add_argument('-i', '--include', nargs='+',
+                             help='Only run the pipeline on the given providers, identified by their prefixes.')
+    mutex_group.add_argument('-x', '--exclude', nargs='+',
+                             help='Exclude the given providers, identified by their prefixes, from the pipeline.')
+
+    args = parser.parse_args()
+
+    return args
+
+
+def run_pipeline(include=None, exclude=None):
     providers = get_providers()
+    prefixes = {provider['prefix'] for provider in providers}
+
+    # If providers were specified, check to see if they actually exist in the database,
+    # then get the desired providers
+    if include:
+        specified_prefixes = chosen_prefixes = set(include)
+    elif exclude:
+        specified_prefixes = set(exclude)
+        chosen_prefixes = prefixes - specified_prefixes
+    else:
+        specified_prefixes = None
+
+    if specified_prefixes:
+        missing = specified_prefixes - prefixes
+
+        if missing:
+            raise ValueError('Provider(s) not found in database: ' + ', '.join(missing))
+
+        providers = [provider for provider in providers if provider['prefix'] in chosen_prefixes]
+
     end_time = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time())
     extras_dir = './extras/'
 
@@ -100,4 +136,6 @@ def update_last_download(cur, prefix, time):
     cur.execute(sql, (time, prefix))
 
 
-main()
+if __name__ == '__main__':
+    args = vars(parse_args())
+    run_pipeline(**args)
