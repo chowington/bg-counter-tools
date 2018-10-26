@@ -524,21 +524,15 @@ class ProjectFileManager:
         if date > self.last_date:
             self.last_date = date
 
-    # Writes the config file
+    # Writes the config file from a template
     def write_config(self):
-        filename = '{}_{}.config'.format(self.prefix, self.year)
+        template_path = 'bg_config.tpl'
+        config_path = '{}_{}.config'.format(self.prefix, self.year)
 
-        with open(filename, 'w') as config_f:
-            config_f.write('Study_identifier : {1}_{2}_{0}_smart_trap_surveillance\n'
-                           'Sample_nomenclature : {0}_{1}_sample\n'
-                           'Collection_nomenclature : {0}_{1}_collection\n'
-                           "Study_species : 'Culicidae', 'VBsp:0003818'\n"
-                           "Study_ontology : 'adult', 'IDOMAL:0000655'\n"
-                           "Study_ontology : 'BG-Counter trap catch', 'IRO:0000143'\n"
-                           "Study_ontology : 'unknown sex', 'VBcv:0001048'\n"
-                           "Study_ontology : 'by size', 'IRO:0000145'\n"
-                           "Study_ontology : 'carbon dioxide', 'IRO:0000035'\n"
-                           "Study_ontology : 'pool', 'EFO:0000663'".format(self.prefix, self.year, str(self.month).zfill(2)))
+        with open(template_path) as template_f, open(config_path, 'w') as config_f:
+            template = Template(template_f.read())
+            config_text = template.substitute(prefix=self.prefix, year=self.year, month=str(self.month).zfill(2))
+            config_f.write(config_text)
 
     # Writes the investigation sheet from a template
     def write_investigation(self):
