@@ -23,6 +23,9 @@ def parse_args():
                         '"YYYY-MM-DD", "YYYY-MM-DDTHH-MM", "YYYY-MM-DDTHH-MM-SS"')
     parser.add_argument('-e', '--end-time', type=com.parse_date,
                         help='End of the target timeframe. Same acceptable formats as above.')
+    parser.add_argument('--preserve-metadata', action='store_true',
+                        help='Don\'t change the metadata in the database other than adding new traps, '
+                             'which is required for the pipeline to work.')
 
     mutex_group = parser.add_mutually_exclusive_group()
     mutex_group.add_argument('-i', '--include', nargs='+',
@@ -35,7 +38,7 @@ def parse_args():
     return args
 
 
-def run_pipeline(include=None, exclude=None, start_time=None, end_time=None):
+def run_pipeline(include=None, exclude=None, start_time=None, end_time=None, preserve_metadata=False):
     providers = get_providers()
     prefixes = {provider['prefix'] for provider in providers}
 
@@ -92,10 +95,11 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None):
             update_traps(api_key=provider['api_key'], file=[json_output])
 
             # Parse the JSON and return the metadata of successful projects, if any
-            projects = parse_json(files=[json_output], split_years=True)
+            projects = parse_json(files=[json_output], split_years=True, preserve_metadata=preserve_metadata)
 
             # Update the last download time
-            update_last_download(prefix=provider['prefix'], time=end_time)
+            if not preserve_metadata:
+                update_last_download(prefix=provider['prefix'], time=end_time)
 
             for project in projects:
                 # Define filenames
