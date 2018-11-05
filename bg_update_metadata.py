@@ -13,7 +13,7 @@ def parse_args():
     # Parse the command line arguments.
 
     parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap '
-                                                 'persisent metadata.')
+                                                 'database data.')
     subparsers = parser.add_subparsers(title='subcommands',
                                        help='Add a subcommand name followed by -h for specific '
                                             'help on it.')
@@ -29,57 +29,57 @@ def parse_args():
     # change-key parser.
     parser_ck = subparsers.add_parser('change-key',
                                       help='Changes the API key associated with a particular '
-                                           'set of metadata.')
+                                           'provider.')
     parser_ck.add_argument('old_key', type=api_key, help='The old API key.')
     parser_ck.add_argument('new_key', type=api_key, help='The new API key.')
     parser_ck.set_defaults(func=change_key)
 
-    # add-key parser.
-    parser_ak = subparsers.add_parser('add-key',
-                                      help='Adds a new key and associated set of metadata.')
-    parser_ak.add_argument('new_key', type=api_key, help='The new API key.')
-    parser_ak.add_argument('prefix', type=non_empty,
+    # add-provider parser.
+    parser_ap = subparsers.add_parser('add-provider',
+                                      help='Adds a new data provider to the database.')
+    parser_ap.add_argument('new_key', type=api_key, help="The provider's API key.")
+    parser_ap.add_argument('prefix', type=non_empty,
                            help='The prefix to use for collection and sample IDs associated with '
-                                'this key.')
-    parser_ak.add_argument('study_tag', type=non_empty,
+                                'this provider.')
+    parser_ap.add_argument('study_tag', type=non_empty,
                            help='The VBcv study tag associated with this provider.')
-    parser_ak.add_argument('study_tag_number', type=non_empty,
+    parser_ap.add_argument('study_tag_number', type=non_empty,
                            help='The VBcv study tag term accession number associated with '
                                 'this provider.')
-    parser_ak.add_argument('obfuscate', type=non_empty,
+    parser_ap.add_argument('obfuscate', type=non_empty,
                            help="Whether to obfuscate this provider's GPS data. "
                                 "Please provide a boolean value: yes/no, true/false, 1/0.")
-    parser_ak.add_argument('-f', '--file', dest='update_traps_file',
-                           help="Add the traps within the given file to the new key's metadata. "
+    parser_ap.add_argument('-f', '--file', dest='update_traps_file',
+                           help="Add the traps within the given file to the provider's metadata. "
                                 "Equivalent to running update-traps with the file.")
 
-    parser_ak_info = parser_ak.add_argument_group(title='Contact information options',
+    parser_ak_info = parser_ap.add_argument_group(title='Contact information options',
                                                   description='Must provide at least one full name'
                                                               ' and email address.')
     parser_ak_info.add_argument('--on', '--org-name', dest='org_name', type=non_empty,
-                                help='The name of the organization associated with this key.')
+                                help='The name of the organization associated with this provider.')
     parser_ak_info.add_argument('--oe', '--org-email', dest='org_email', type=non_empty,
                                 help='The email address of the organization '
-                                     'associated with this key.')
+                                     'associated with this provider.')
     parser_ak_info.add_argument('--ou', '--org-url', dest='org_url', type=non_empty,
                                 help="The URL of the organization's website.")
     parser_ak_info.add_argument('--cfn', '--contact-first-name', dest='contact_first_name',
                                 type=non_empty, help='The first name of the person/contact '
-                                                     'associated with this key.')
+                                                     'associated with this provider.')
     parser_ak_info.add_argument('--cln', '--contact-last-name', dest='contact_last_name',
                                 type=non_empty, help='The last name of the person/contact '
-                                                     'associated with this key.')
+                                                     'associated with this provider.')
     parser_ak_info.add_argument('--ce', '--contact-email', dest='contact_email', type=non_empty,
                                 help='The email address of the person/contact '
-                                     'associated with this key.')
-    parser_ak.set_defaults(func=add_key)
+                                     'associated with this provider.')
+    parser_ap.set_defaults(func=add_provider)
 
     args = parser.parse_args()
 
     if not hasattr(args, 'func'):
         parser.error('Must provide a subcommand.')
 
-    if args.func == add_key:
+    if args.func == add_provider:
         if not (args.org_name or args.contact_first_name or args.contact_last_name):
             parser.error('Must provide either an organization name or a contact name.')
         if not (args.org_email or args.contact_email):
@@ -145,9 +145,9 @@ def change_key(cur, old_key, new_key):
 
 
 @com.run_with_connection
-def add_key(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, org_name=None,
-            org_email=None, org_url=None, contact_first_name=None, contact_last_name=None,
-            contact_email=None):
+def add_provider(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, org_name=None,
+                 org_email=None, org_url=None, contact_first_name=None, contact_last_name=None,
+                 contact_email=None):
     # Add a new provider to the database.
     # Note: Omit the 'cur' argument when calling.
 
@@ -193,7 +193,7 @@ if __name__ == '__main__':
     func(**args)
 
     # Update traps after adding a key if specified.
-    if func == add_key and filename:
+    if func == add_provider and filename:
         update_traps(api_key=args['api_key'], file=filename)
 
     print('Success.')
