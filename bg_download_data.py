@@ -1,6 +1,18 @@
-################
-# Python 3.5.2 #
-################
+"""
+Pulls smart trap data from the Biogents API.
+
+Pulls smart trap data in JSON format from the Biogents API given the API
+key and the desired timeframe.  By default, this script shows a
+graphical display of its progress.  This display shows a progress bar
+for each trap detected in the initial request.  The left side of the
+graph marks the beginning of the target timeframe and the right side the
+end. Each trap's bar represents the most recent data that has been
+collected for that trap.
+
+For usage information, run with -h.
+
+This script requires at least Python 3.5.
+"""
 
 import argparse
 import collections
@@ -18,8 +30,7 @@ import bg_common as com
 
 
 def parse_args():
-    # Parse the command line arguments.
-
+    """Parse the command line arguments and return an args namespace."""
     parser = argparse.ArgumentParser(description='Pulls smart trap data.')
 
     parser.add_argument('api_key', help='The 32-character API key taken from the Biogents user '
@@ -73,7 +84,35 @@ def parse_args():
 
 def download_data(stdscr, api_key, start_time, end_time, output, target_traps=None,
                   split_traps=False, skip_empty=False, pretty_print=None, dry=False):
-    """Download smart trap data over a specific timeframe."""
+    """Download smart trap data over a specific timeframe.
+
+    Required arguments:
+    stdscr -- The curses screen object on which to show the graphical
+        display.  'None' can be passed to indicate no graphical display.
+    api_key -- The 32-character API key taken from the Biogents user
+        dashboard.  Keep dashes.
+    start_time -- A datetime object representing the beginning of the
+        timeframe to get data over.
+    end_time -- A datetime object representing the end of the timeframe
+        to get data over.
+    output -- A string containing the desired name of the output file.
+        If 'None' is passed, the file will be placed within a directory
+        structure described in the documentation for the
+        --nested-directories option above.
+
+    Optional arguments:
+    target_traps -- A container holding one or more string trap IDs
+        to exclusively get data for.  All other traps will be ignored.
+        If not all target traps are found, a ValueError will be thrown.
+    split_traps -- A boolean controlling whether to keep all traps'
+        data in one file or to split each trap's data into a separate
+        file.
+    skip_empty -- A boolean controlling whether to list traps in the
+        output file that did not provide any capture data.
+    pretty_print -- A boolean controlling whether to add indentation
+        to the final JSON output.
+    dry -- Pass True to prevent the script from creating any files.
+    """
     # The limit of data points (captures) per trap the API can deliver.
     limit = 1000
 
@@ -329,7 +368,32 @@ def download_data(stdscr, api_key, start_time, end_time, output, target_traps=No
 
 def write_to_file(trap_data, api_key, start_time, end_time, output,
                   split_traps=False, skip_empty=False, pretty_print=None, screen=None):
+    """Write smart trap JSON data to file.
 
+    Required arguments:
+    trap_data -- The dict containing the smart trap data.
+    api_key -- The 32-character API key taken from the Biogents user
+        dashboard.  Used only if the output option isn't provided.
+    start_time -- A datetime object representing the beginning of the
+        timeframe that contains this data.
+    end_time -- A datetime object representing the end of the timeframe
+        that contains this data.
+    output -- A string containing the desired name of the output file.
+        If 'None' is passed, the file will be placed within a directory
+        structure described in the documentation for the
+        --nested-directories option above.
+
+    Optional arguments:
+    split_traps -- A boolean controlling whether to keep all traps'
+        data in one file or to split each trap's data into a separate
+        file.
+    skip_empty -- A boolean controlling whether to list traps in the
+        output file that did not provide any capture data.
+    pretty_print -- A boolean controlling whether to add indentation
+        to the output files.
+    screen -- The curses screen object on which to print the status.
+        'None' indicates that a curses screen is not being used.
+    """
     # Write trap data to file.
     if screen:
         print_status('Writing to file...', screen)
@@ -396,8 +460,7 @@ def write_to_file(trap_data, api_key, start_time, end_time, output,
 
 
 def valid_trap_id(string):
-    # Check a string to see if it's a valid trap ID.
-
+    """Check a string to see if it's a valid trap ID."""
     if not re.match('^[0-9]{15}$', string):
         raise argparse.ArgumentTypeError('Invalid trap ID: ' + string)
 
@@ -405,9 +468,7 @@ def valid_trap_id(string):
 
 
 def request_data(api_key, start_time, end_time, screen):
-    # Return data in JSON format for a given key, start time,
-    # and end time.
-
+    """Send a request for smart trap data and return data as a dict."""
     if screen:
         print_status('Performing request...', screen)
     else:
@@ -442,20 +503,17 @@ def request_data(api_key, start_time, end_time, screen):
 
 
 def date_to_position(datetime, start_time, gradation):
-    # Return the graph position that a certain datetime maps to.
-
+    """Return the graph position that a datetime maps to."""
     return math.floor((datetime-start_time) / gradation)
 
 
 def date_to_percentage(datetime, start_time, end_time):
-    # Return the percentage that a certain datetime represents.
-
+    """Return the percentage of the timeframe a datetime represents."""
     return math.floor(((datetime-start_time) / (end_time-start_time)) * 100)
 
 
 def draw_tracking_line(position, trap_ys, screen):
-    # Draw the tracking line at a certain position on the graph.
-
+    """Draw the tracking line at the given position on the graph."""
     position += 21
 
     screen.addch(2, position, '+')
@@ -470,8 +528,7 @@ def draw_tracking_line(position, trap_ys, screen):
 
 
 def erase_tracking_line(graph_width, trap_ys, screen):
-    # Erase the tracking line.
-
+    """Erase the tracking line."""
     screen.hline(2, 20, ' ', graph_width + 2)
     screen.hline(3, 21, ' ', graph_width)
     screen.hline(4, 21, ' ', graph_width)
@@ -485,34 +542,50 @@ def erase_tracking_line(graph_width, trap_ys, screen):
 
 
 def print_status(string, screen):
-    # Print string at the top left of the window.
-
+    """Print the given string at the top left of the screen."""
     screen.hline(1, 2, ' ', 30)
     screen.addstr(1, 2, string)
     screen.refresh()
 
 
 class Pad:
-    """Extend curses' window class
-    to handle pads larger than the screen size.
+    """Create and manage a pad potentially larger than the screen size.
+
+    This class encapsulates curses' window class to create a pad that
+    behaves well even if it's larger than the screen size, including
+    providing basic scrolling functionality.
+
+    Public methods:
+        resize
+        check_input
+        scroll
+        refresh
     """
+
     def __init__(self, stdscr, nlines, ncols):
+        """Initialize the instance and create the main pad object."""
         self.stdscr = stdscr
         self.pad = curses.newpad(nlines, ncols)
         self.scr_height, self.scr_width = stdscr.getmaxyx()
         self.top_shown = self.max_top_shown = 0
 
     def __getattr__(self, item):
+        """Implement encapsulation.
+
+        This method implements the encapsulation of the curses window
+        object by routing all undefined attributes to the internal pad.
+
+        item -- The attribute that was called.
+        """
         return getattr(self.pad, item)
 
     def resize(self, nlines, ncols):
+        """Resize the pad."""
         self.pad.resize(nlines, ncols)
         self.max_top_shown = nlines - self.scr_height
 
     def check_input(self):
-        # Read keyboard input to determine whether
-        # the pad needs to be scrolled.
-
+        """Read keyboard input and perform the appropriate action."""
         pages = 0
         code = self.stdscr.getch()
 
@@ -529,18 +602,18 @@ class Pad:
             self.scroll(pages)
 
     def scroll(self, num_pages):
-        # Scroll the pad some number of pages.
-        # Positive scrolls down and negative scrolls up.
+        """Scroll the pad some number of pages.
 
+        Note that a positive num_pages scrolls down while a negative
+        scrolls up.
+        """
         self.top_shown = self.top_shown + num_pages*self.scr_height
 
         self.top_shown = max(self.top_shown, 0)
         self.top_shown = min(self.top_shown, self.max_top_shown)
 
     def refresh(self):
-        # Refresh the screen, checking for scrolling input
-        # before doing so.
-
+        """Refresh the pad after checking for input."""
         self.check_input()
         self.pad.refresh(self.top_shown, 0, 0, 0, self.scr_height - 1, self.scr_width)
 
