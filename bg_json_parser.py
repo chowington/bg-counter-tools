@@ -1,6 +1,16 @@
-################
-# Python 3.5.2 #
-################
+"""
+Aggregates and converts smart trap JSON files into interchange files.
+
+This script takes a set of smart trap JSON data files and aggregates
+their data into days before writing the data to interchange-format
+files.  The script can also automatically generate project files
+necessary for the full BG-Counter Tools pipeline, splitting data into
+years along the way, using the --split-years option.
+
+For usage information, run with -h.
+
+This script requires at least Python 3.5.
+"""
 
 import argparse
 import csv
@@ -15,8 +25,7 @@ import bg_common as com
 
 
 def parse_args():
-    # Parse the command line arguments.
-
+    """Parse the command line arguments and return an args namespace."""
     parser = argparse.ArgumentParser(description='Parses JSON delivered by the Biogents smart trap'
                                                  ' API and creates an interchange format file '
                                                  'from the data.')
@@ -37,8 +46,21 @@ def parse_args():
 
 
 def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False):
-    """Parse a group of JSON files and create
-    interchange format abundance files from them.
+    """Parse JSON files and create interchange format files from them.
+
+    Required arguments:
+    files -- A list of filenames to parse.
+
+    Optional arguments:
+    output -- The name of the output file.  Ignored if split_years is
+        True.
+    split_years -- A boolean signalling whether to split data from
+        different years into separate output files.  The files will be
+        named [prefix]_[year].pop.  Also creates project files necessary
+        for the rest of the BG-Counter Tools pipeline.
+    preserve_metadata -- A boolean signalling whether to preserve the
+        metadata within the database, skipping all database update
+        operations.
     """
     random.seed()
     out_csv = None
@@ -124,9 +146,14 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
 
 
 def process_captures(captures, metadata, out_csv):
-    # Take a set of captures from a single trap and bin them into days
-    # before sending them off to be collected and written to file.
+    """Bin captures into days, then write them to file.
 
+    Arguments:
+    captures -- A dict containing the captures to process.
+    metadata -- A dict containing the metadata for the trap and provider
+        that the captures originate from.
+    out_csv -- A CSV writer object to write the binned captures to.
+    """
     # The total number of unique captures (some are duplicates).
     total_captures = 0
 
@@ -232,11 +259,20 @@ def process_captures(captures, metadata, out_csv):
 
 
 def make_collection(captures, locations, obfuscate):
-    # Take a set of captures within the same day, bins them
-    # based on location, and returns the collection that is big enough,
-    # returning None if there is none.  Add new locations to
-    # the metadata dict if there are any.
+    """Bin captures into collections based on location.
 
+    Takes a set of captures within the same day, bins them based on
+    location, and returns the collection that is big enough, returning
+    None if there is none.  Adds new locations to the metadata dict if
+    there are any.
+
+    Arguments:
+    captures -- A dict containing the captures to process.
+    locations -- A dict containing the locations that have been recorded
+        previously for the trap that the captures came from.
+    obfuscate -- A boolean determining whether to obfuscate the new
+        locations before adding them to the metadata.
+    """
     # Add a new key that will hold the captures that map
     # to each location and a key that will let us know that these
     # locations are not new (used later).
@@ -350,11 +386,19 @@ def make_collection(captures, locations, obfuscate):
 
 
 def write_collection(collection, metadata, out_csv):
-    # Take a collection containing a day's worth of captures and
-    # aggregate and write it to file if the counter was on at some point
-    # during the day.  Return True if the collection was written
-    # and False if it wasn't.
+    """Write a collection of captures to file.
 
+    Take a collection containing a day's worth of captures and
+    aggregate and write it to file if the counter was on at some point
+    during the day.  Return True if the collection was written
+    and False if it wasn't.
+
+    Arguments:
+    collection -- A dict containing the collection to write to file.
+    metadata -- A dict containing the metadata for the trap and provider
+        that the captures originate from.
+    out_csv -- A CSV writer object to write the collection to.
+    """
     captures = collection['captures']
     mos_count = 0
 
@@ -433,9 +477,13 @@ def write_collection(collection, metadata, out_csv):
 
 @com.run_with_connection
 def get_trap_metadata(cur, trap_id):
-    # Get metadata for the trapset containing the given trap from
-    # the database.  Note: Omit the 'cur' argument when calling.
+    """Get metadata for the trapset containing the given trap.
 
+    trap_id -- A string representing a BG-Counter trap ID.
+
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     # Get the prefix associated with the trap
     # to check if the trap exists in the database.
     sql = ('SELECT p.prefix, p.obfuscate FROM traps as t, providers as p '
@@ -481,9 +529,14 @@ def get_trap_metadata(cur, trap_id):
 
 @com.run_with_connection
 def get_provider_metadata(cur, prefix):
-    # Get metadata about a particular data provider.
-    # Note: Omit the 'cur' argument when calling.
+    """Get metadata for a particular data provider.
 
+    prefix -- A string corresponding to the prefix of the desired
+        provider.
+
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     sql = ('SELECT org_name, org_email, org_url, contact_first_name, contact_last_name,'
            'contact_email, study_tag, study_tag_number '
            'FROM providers WHERE prefix = %s')
@@ -495,9 +548,14 @@ def get_provider_metadata(cur, prefix):
 
 @com.run_with_connection
 def update_metadata(cur, metadata):
-    # Update metadata in database.
-    # Note: Omit the 'cur' argument when calling.
+    """Update metadata in the database.
 
+    metadata -- A dict containing the metadata to update the database
+        with.  Can contain metadata on multiple providers.
+
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     for prefix, trapset in metadata.items():
         # Update the ordinals associated with the prefix.
         sql = ('INSERT INTO ordinals VALUES (%s, %s, %s) '
@@ -526,9 +584,11 @@ def update_metadata(cur, metadata):
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):
-    # Calculate the distance in meters between two sets
-    # of decimal coordinates.
+    """Get distance in meters between two sets of decimal coordinates.
 
+    Note that this code is based on the Haversine formula for spheres,
+    giving it an error of up to about 0.5%.
+    """
     # Approximate radius of earth in km.
     r = 6373.0
 
@@ -549,10 +609,22 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 
 def obfuscate_coordinates(lat, lon, min_distance, max_distance):
-    # Obfuscate a set of GPS coordinates by translating the represented
-    # location by a distance between min_distance and max_distance in a
-    # random direction.  Distances should be given in meters.
+    """Obfuscate a set of GPS coordinates.
 
+    Obfuscates a set of GPS coordinates by translating the represented
+    location in a random direction by a random distance between two
+    bounds.
+
+    Arguments:
+    lat -- The decimal latitude.
+    lon -- The decimal longitude.
+    min_distance -- The minimum distance in meters by which to displace
+        the point.
+    max_distance -- The maximum distance in meters by which to displace
+        the point.
+
+    Formula source: http://www.edwilliams.org/avform.htm#LL
+    """
     # Randomly choose a distance within the parameters.
     d_m = random.uniform(min_distance, max_distance)
 
@@ -581,8 +653,22 @@ def obfuscate_coordinates(lat, lon, min_distance, max_distance):
 
 
 class ProjectFileManager:
-    """Handle the formation of all files related to a project."""
+    """Handle the formation of all files related to a project.
+
+    Public methods:
+        update_dates
+        write_config
+        write_investigation
+        close
+    """
+
     def __init__(self, prefix, year):
+        """Initialize the instance.
+
+        prefix -- The prefix of the provider that this project's data
+            comes from.
+        year -- The year that this project's data was collected.
+        """
         self.prefix = prefix
         self.year = year
 
@@ -595,8 +681,11 @@ class ProjectFileManager:
         self.month = None
 
     def update_dates(self, date):
-        # Update the first date and/or last date, as appropriate.
+        """Update the first and/or last date, as appropriate.
 
+        date -- The date of a capture that is being grouped into this
+            project.
+        """
         if date < self.first_date:
             self.first_date = date
             self.month = date.month
@@ -604,8 +693,11 @@ class ProjectFileManager:
             self.last_date = date
 
     def write_config(self):
-        # Write the config file from a template.
+        """Write the config file from a template.
 
+        The config file is intended to be passed to PopBioWizard.pl
+        further down the pipeline.
+        """
         template_path = 'bg_config.tpl'
         config_path = '{}_{}.config'.format(self.prefix, self.year)
 
@@ -616,8 +708,11 @@ class ProjectFileManager:
             config_f.write(config_text)
 
     def write_investigation(self):
-        # Write the investigation sheet from a template.
+        """Write the investigation sheet from a template.
 
+        The investigation sheet is one of the four ISA-Tab sheets.  The
+        other three are created by PopBioWizard.pl.
+        """
         data = get_provider_metadata(prefix=self.prefix)
 
         template_path = 'bg_investigation.tpl'
@@ -638,9 +733,14 @@ class ProjectFileManager:
             inv_f.write(inv_text)
 
     def close(self):
-        # Close the object's file and delete the file if it has no data,
-        # returning the prefix and year if there was data.
+        """Close the data file and write other files if necessary.
 
+        This function calls self.writer's close function, which checks
+        to see whether any data was written to the data file and deletes
+        the file if not.  If data was written, this function then writes
+        the config and investigation files and returns a dict containing
+        the project information.  Otherwise it returns None.
+        """
         if self.writer.close():
             self.write_config()
             self.write_investigation()
@@ -652,8 +752,15 @@ class ProjectFileManager:
 
 
 class CSVWriter:
-    """Handle CSV file operations."""
+    """Handle CSV data file operations.
+
+    Public methods:
+        is_empty
+        close
+    """
+
     def __init__(self, filename):
+        """Initialize the instance."""
         self.filename = filename
         self.file = open(filename, 'w')
         self.writer = csv.writer(self.file, lineterminator='\n')
@@ -669,14 +776,15 @@ class CSVWriter:
         self.empty_pos = self.file.tell()
 
     def is_empty(self):
-        # Return whether the CSV file is empty of any data rows.
-
+        """Return whether the CSV file is empty of any data rows."""
         return self.file.tell() == self.empty_pos
 
     def close(self):
-        # Close the object's file and deletes the file if it has
-        # no data.  Return True if there was data and False if not.
+        """Close the CSV file.
 
+        Closes the object's file and deletes the file if it has
+        no data.  Returns True if there was data and False if not.
+        """
         if self.is_empty():
             remove = True
         else:

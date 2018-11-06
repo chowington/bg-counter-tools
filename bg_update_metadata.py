@@ -1,6 +1,15 @@
-################
-# Python 3.5.2 #
-################
+"""
+Provides a set of tools to help update data in the database.
+
+Provides three subcommands to manipulate database data: add-provider to
+add a new provider, change-key to change the API key associated with a
+provider, and update-traps to search a set of files for new traps to add
+to a provider's trapset.
+
+For usage information, run with -h.
+
+This script requires at least Python 3.5.
+"""
 
 import argparse
 import json
@@ -10,8 +19,7 @@ import bg_common as com
 
 
 def parse_args():
-    # Parse the command line arguments.
-
+    """Parse the command line arguments and return an args namespace."""
     parser = argparse.ArgumentParser(description='Provides a set of tools to update smart trap '
                                                  'database data.')
     subparsers = parser.add_subparsers(title='subcommands',
@@ -90,9 +98,16 @@ def parse_args():
 
 @com.run_with_connection
 def update_traps(cur, api_key, file):
-    # Search a file for new traps and add any that are found to the
-    # given API key.  Note: Omit the 'cur' argument when calling.
+    """Search a file for new traps and add any that are found.
 
+    Arguments:
+    api_key -- The API key associated with the trapset to add new traps
+        to.
+    file -- A list of filenames to search for new traps.
+
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     sql = 'SELECT prefix FROM providers WHERE api_key = %s'
     cur.execute(sql, (api_key,))
     row = cur.fetchone()
@@ -130,9 +145,11 @@ def update_traps(cur, api_key, file):
 
 @com.run_with_connection
 def change_key(cur, old_key, new_key):
-    # Change a provider's API key.
-    # Note: Omit the 'cur' argument when calling.
+    """Change a provider's API key.
 
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     if old_key == new_key:
         print('Notice: New key matches old key - no change.')
 
@@ -148,9 +165,33 @@ def change_key(cur, old_key, new_key):
 def add_provider(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, org_name=None,
                  org_email=None, org_url=None, contact_first_name=None, contact_last_name=None,
                  contact_email=None):
-    # Add a new provider to the database.
-    # Note: Omit the 'cur' argument when calling.
+    """Add a new provider to the database.
 
+    Required arguments:
+    prefix -- The prefix to use for collection and sample IDs associated
+        with this provider.
+    new_key -- The provider's API key.
+    study_tag -- The VBcv study tag associated with this provider.
+    study_tag_number -- The VBcv study tag term accession number
+        associated with this provider.
+    obfuscate -- A boolean signalling whether to obfuscate this
+        provider's GPS data.
+
+    Optional arguments:
+    org_name -- The name of the organization associated with this provider.
+    org_email -- The email address of the organization associated with
+        this provider.
+    org_url -- The URL of the organization's website.
+    contact_first_name -- The first name of the person/contact
+        associated with this provider.
+    contact_last_name -- The last name of the person/contact
+        associated with this provider.
+    contact_email -- The email address of the person/contact
+        associated with this provider.
+
+    Note: Omit the 'cur' argument when calling and provide other
+    arguments as keyword args.
+    """
     sql = ('INSERT INTO providers (prefix, api_key, org_name, org_email, org_url, '
            'contact_first_name, contact_last_name, contact_email, '
            'study_tag, study_tag_number, obfuscate) '
@@ -160,8 +201,7 @@ def add_provider(cur, prefix, new_key, study_tag, study_tag_number, obfuscate, o
 
 
 def api_key(string):
-    # Check whether the argument is a valid API key.
-
+    """Return string if it is a valid API key, erroring if not."""
     if not re.match('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', string):
         raise argparse.ArgumentTypeError('Invalid API key.')
 
@@ -169,8 +209,7 @@ def api_key(string):
 
 
 def non_empty(string):
-    # Check whether the argument is not empty.
-
+    """Return string if it is not empty, erroring it if is."""
     if not string:
         raise argparse.ArgumentTypeError('Argument cannot be empty.')
 
