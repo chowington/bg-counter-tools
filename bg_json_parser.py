@@ -698,7 +698,7 @@ class ProjectFileManager:
         The config file is intended to be passed to PopBioWizard.pl
         further down the pipeline.
         """
-        template_path = 'bg_config.tpl'
+        template_path = 'config.tpl'
         config_path = '{}_{}.config'.format(self.prefix, self.year)
 
         with open(template_path) as template_f, open(config_path, 'w') as config_f:
@@ -715,7 +715,7 @@ class ProjectFileManager:
         """
         data = get_provider_metadata(prefix=self.prefix)
 
-        template_path = 'bg_investigation.tpl'
+        template_path = 'investigation.tpl'
         inv_path = '{}_{}.inv'.format(self.prefix, self.year)
 
         with open(template_path) as template_f, open(inv_path, 'w') as inv_f:
