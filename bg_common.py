@@ -18,7 +18,7 @@ from functools import wraps
 import psycopg2 as pg2
 import psycopg2.extras as pg2_extras
 
-config_file = 'config.ini'
+config_file = 'db_config.ini'
 
 
 def get_connection_params():
