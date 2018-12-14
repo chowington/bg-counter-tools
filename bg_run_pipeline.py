@@ -157,7 +157,7 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
 
             # Parse the JSON and return the metadata
             # of successful projects, if any.
-            projects = parse_json(files=[json_output], split_years=True,
+            projects = parse_json(files=[json_output], split_years=True, check_locations=True,
                                   preserve_metadata=preserve_metadata)
 
             # Update the last download time.
@@ -175,7 +175,7 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
                 # Create ISA sheets.
                 subprocess.run(['perl', 'PopBio-interchange-format/PopBioWizard.pl', '--file',
                                 interchange_name, '--config', config_name, '--sample',
-                                '--collection', '--species', '--bg-counter'])
+                                '--collection', '--species', '--bg-counter', '--skip-backup'])
 
                 # Move sheets to the project directory.
                 if not os.path.exists(project_dir):

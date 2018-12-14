@@ -6,10 +6,10 @@ Term Source Description,The Microarray Ontology,Experimental Factor Ontology,Ont
 
 STUDY
 Study Identifier,${year}-${month}-${prefix}-smart-trap-surveillance
-Study Title,Mosquito surveillance by smart traps owned by ${org_name}. ${year}
+Study Title,Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
 Study Submission Date,${year}
 Study Public Release Date,${year}
-Study Description,Automatic mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
+Study Description,Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
 Study File Name,s_samples.txt
 
 # Project tags: must be children of VBcv:0001076 'project tag'
@@ -27,7 +27,7 @@ STUDY PUBLICATIONS
 Study PubMed ID
 Study Publication DOI
 Study Publication Author list,${org_name}
-Study Publication Title,Mosquito surveillance by smart traps owned by ${org_name}. ${year}
+Study Publication Title,Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
 Study Publication Status,unpublished
 Study Publication Status Term Accession Number,0000233
 Study Publication Status Term Source Ref,VBcv

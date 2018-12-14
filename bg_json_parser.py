@@ -33,6 +33,9 @@ def parse_args():
     parser.add_argument('files', nargs='+', metavar='file', help='The JSON file(s) to parse.')
     parser.add_argument('--preserve-metadata', action='store_true',
                         help="Don't change the metadata in the database in any way")
+    parser.add_argument('-c', '--check-locations', action='store_true',
+                        help='Before writing to file, pause to allow the user to check for any '
+                             'errant new locations.')
 
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument('-o', '--output', help='The name of the output file.')
@@ -45,7 +48,8 @@ def parse_args():
     return args
 
 
-def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False):
+def parse_json(files, output='interchange.pop', split_years=False, preserve_metadata=False,
+               check_locations=False):
     """Parse JSON files and create interchange format files from them.
 
     Required arguments:
@@ -61,10 +65,13 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
     preserve_metadata -- A boolean signalling whether to preserve the
         metadata within the database, skipping all database update
         operations.
+    check_locations -- A boolean signalling whether to pause before
+        writing to file for the use to check for any errant locations.
     """
     random.seed()
-    out_csv = None
     metadata = {}
+    out_csv = None
+    projects = None
 
     try:
         if split_years:
@@ -75,12 +82,15 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
         for filename in files:
             with open(filename, 'r') as json_f:
                 js = json.load(json_f)
+                collections = {}
+                capture_count = {}
 
                 print("Processing file " + filename)
 
                 for trap_wrapper in js['traps']:
                     trap_id = trap_wrapper['Trap']['id']
                     captures = trap_wrapper['Capture']
+                    capture_count[trap_id] = len(captures)
 
                     if len(captures) != 0:
                         # Get metadata for this trap
@@ -94,25 +104,23 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                             metadata.update(new_metadata)
                             curr_prefix = list(new_metadata.keys())[0]
                             curr_trapset = new_metadata[curr_prefix]
+                            collections[curr_prefix] = {}
 
                         trap_metadata = {
-                            'prefix': curr_prefix,
                             'locations': curr_trapset['traps'][trap_id],
-                            'ordinals': curr_trapset['ordinals'],
                             'obfuscate': curr_trapset['obfuscate']
                         }
 
                         # Process captures.
-                        total_captures, good_captures = process_captures(captures, trap_metadata,
-                                                                         out_csv)
+                        new_collections = process_captures(captures, trap_metadata)
+
+                        if trap_id not in collections[curr_prefix]:
+                            collections[curr_prefix][trap_id] = []
+
+                        collections[curr_prefix][trap_id].extend(new_collections)
 
                         # Update master metadata.
                         curr_trapset['traps'][trap_id] = trap_metadata['locations']
-                        curr_trapset['ordinals'] = trap_metadata['ordinals']
-
-                        print('Trap {}: Total captures: {} - Good captures: {} ({}%)'
-                              .format(trap_id, total_captures, good_captures,
-                                      math.floor((good_captures/total_captures) * 100)))
 
                     # Warn if a trap is showing no captures.
                     # We should reasonably expect data from each trap,
@@ -120,6 +128,51 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                     # worth looking into.
                     else:
                         print('Warning: 0 captures at trap_id: ' + trap_id)
+
+                # Allow the user to manually check new locations if
+                # requested.
+                if check_locations:
+                    collections = filter_locations(collections)
+
+                # Write collections to file.
+                for prefix, traps in collections.items():
+                    for trap_id, curr_collections in traps.items():
+                        good_captures = 0
+
+                        for collection in curr_collections:
+                            curr_metadata = {'prefix': prefix, 'ordinals': metadata[prefix]['ordinals']}
+                            date = com.make_date(collection['captures'][0]['timestamp_start'])
+                            year = date.year
+
+                            # Get the correct output file.
+                            if isinstance(out_csv, dict):
+                                # If the correct output file doesn't exist, make it.
+                                if prefix not in out_csv:
+                                    out_csv[prefix] = {}
+
+                                if year not in out_csv[prefix]:
+                                    out_csv[prefix][year] = ProjectFileManager(prefix, year)
+
+                                curr_csv = out_csv[prefix][year]
+
+                            else:
+                                curr_csv = out_csv
+
+                            # If a collection was be made, write it to
+                            # file and count its captures as good.
+                            if write_collection(collection, curr_metadata, curr_csv):
+                                good_captures += len(collection['captures'])
+                                metadata[prefix]['ordinals'] = curr_metadata['ordinals']
+
+                                # If the CSV is for a project, update
+                                # the project's dates.
+                                if isinstance(curr_csv, ProjectFileManager):
+                                    curr_csv.update_dates(date)
+
+                        # Print a summary.
+                        print('Trap {}: Total captures: {} - Good captures: {} ({}%)'
+                              .format(trap_id, capture_count[trap_id], good_captures,
+                                      math.floor((good_captures / capture_count[trap_id]) * 100)))
 
     finally:
         # Close all output files.
@@ -136,33 +189,30 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                         if project_info:
                             projects.append(project_info)
             else:
-                projects = None
                 out_csv.close()
 
-            if not preserve_metadata:
-                update_metadata(metadata=metadata)
+    if not preserve_metadata:
+        update_metadata(metadata=metadata)
 
-            return projects
+    return projects
 
 
-def process_captures(captures, metadata, out_csv):
-    """Bin captures into days, then write them to file.
+def process_captures(captures, metadata):
+    """Bin captures into days.
 
     Arguments:
     captures -- A dict containing the captures to process.
     metadata -- A dict containing the metadata for the trap and provider
         that the captures originate from.
-    out_csv -- A CSV writer object to write the binned captures to.
     """
     # The total number of unique captures (some are duplicates).
     total_captures = 0
 
-    # The number of captures that end up being collated.
-    # into a collection.
-    good_captures = 0
-
     # The captures within a single day.
     day_captures = []
+
+    # The collections created from this set of captures.
+    collections = []
 
     # Will hold the timestamp_end of the last capture.
     prev_end_timestamp = dt.datetime.min
@@ -228,34 +278,12 @@ def process_captures(captures, metadata, out_csv):
                 collection = make_collection(day_captures, metadata['locations'],
                                              metadata['obfuscate'])
 
-                # Get the correct output file.
-                if isinstance(out_csv, dict):
-                    prefix = metadata['prefix']
-                    year = curr_date.year
-
-                    # If the correct output file doesn't exist, make it.
-                    if prefix not in out_csv:
-                        out_csv[prefix] = {}
-
-                    if year not in out_csv[prefix]:
-                        out_csv[prefix][year] = ProjectFileManager(prefix, year)
-
-                    curr_csv = out_csv[prefix][year]
-
-                else:
-                    curr_csv = out_csv
-
-                # If a collection could be made, write it to file
-                # and count its captures as good.
-                if collection and write_collection(collection, metadata, curr_csv):
-                    good_captures += len(collection['captures'])
-
-                    if isinstance(curr_csv, ProjectFileManager):
-                        curr_csv.update_dates(curr_date)
+                if collection:
+                    collections.append(collection)
 
                 day_captures = []
 
-    return total_captures, good_captures
+    return collections
 
 
 def make_collection(captures, locations, obfuscate):
@@ -379,8 +407,9 @@ def make_collection(captures, locations, obfuscate):
             del locations[i]
 
         # Remove 'captures' and 'new'.
-        del location['captures']
-        del location['new']
+        else:
+            del locations[i]['captures']
+            del locations[i]['new']
 
     return collection
 
@@ -420,7 +449,7 @@ def write_collection(collection, metadata, out_csv):
         if not used_co2 and capture['co2_status']:
             used_co2 = True
 
-        if not counter_on and capture['counter_status']:
+        if not counter_on and capture['counter_status'] in {'1', True}:
             counter_on = True
 
     # Only write the collection if the counter was on.
@@ -650,6 +679,122 @@ def obfuscate_coordinates(lat, lon, min_distance, max_distance):
     new_lon = math.degrees(new_lon)
 
     return new_lat, new_lon
+
+
+def filter_locations(collections):
+    """Let the user filter out errant new locations.
+
+    Checks a set of collections for new locations, writes them to a file
+    for the user to check, then filters out any collections with
+    locations that the user removed.  The file is formatted so that it
+    can be directly imported into the GPS plotting app found here:
+    https://www.darrinward.com/lat-long/.
+
+    collections -- A dict containing the set of collections to filter.
+    """
+    gps_filename = 'check_locations.csv'
+    new_locations = set()
+    good_locations = set()
+    good_collections = {}
+
+    # Signals whether we've correctly interpreted what locations the
+    # user filtered out.
+    finished = False
+
+    while not finished:
+        with open(gps_filename, 'w') as gps_f:
+            gps_csv = csv.writer(gps_f)
+            gps_csv.writerow(['latitude', 'longitude', 'name', 'color', 'note'])
+
+            # Loop through the collections to find new locations.
+            for prefix, trapset in collections.items():
+                for trap_id, curr_collections in trapset.items():
+                    for collection in curr_collections:
+                        lat = collection['true_latitude']
+                        lon = collection['true_longitude']
+
+                        if collection['new']:
+                            # Give the location a name, write it to
+                            # file, and store it as a new location.
+                            name = 'loc_' + str(len(new_locations))
+
+                            gps_csv.writerow([
+                                lat, lon, name, '#FF0000', '{}_{}'.format(prefix, trap_id)
+                            ])
+
+                            new_locations.add((lat, lon, name))
+                        else:
+                            # We assume that it has been checked before
+                            # and is good.
+                            good_locations.add((lat, lon))
+
+        if new_locations:
+            # Ask the user to check the new locations.
+            input("\nNew locations have been dumped to 'check_locations.csv'.\n"
+                  "Delete errant locations from this file, then press Enter to continue.")
+
+            with open(gps_filename, newline='') as gps_f:
+                gps_csv = csv.DictReader(gps_f)
+
+                for row in gps_csv:
+                    good_locations.add((float(row['latitude']), float(row['longitude']),
+                                        row['name']))
+
+            missing = new_locations - good_locations
+
+            if missing:
+                # Print the names of the deleted locations.
+                missing_names = [loc[2] for loc in missing]
+                missing_names.sort()
+                print('You have removed the following location(s): '
+                      + ', '.join(missing_names) + '.')
+            else:
+                print('You have removed no locations.')
+
+            # Signals whether the user has given valid input.
+            good_input = False
+
+            while not good_input:
+                # Ask the user to confirm that the desired locations
+                # were removed.
+                answer = input('Is this correct? [y/n] ').lower()
+
+                if answer in {'y', 'yes'}:
+                    good_input = True
+                    finished = True
+                    os.remove(gps_filename)
+                elif answer in {'n', 'no'}:
+                    good_input = True
+                    print('Resetting...')
+                    new_locations = set()
+                    good_locations = set()
+                else:
+                    print('Please answer yes or no.')
+
+        else:
+            print('No new locations. Continuing.')
+            finished = True
+
+    if new_locations:
+        # Remove the names from the locations.
+        good_locations = {(loc[0], loc[1]) for loc in good_locations}
+
+        # Keep the collections that have good locations.
+        for prefix, trapset in collections.items():
+            good_collections[prefix] = {}
+
+            for trap_id, curr_collections in trapset.items():
+                good_collections[prefix][trap_id] = []
+
+                for collection in curr_collections:
+                    location = (collection['true_latitude'], collection['true_longitude'])
+
+                    if location in good_locations:
+                        good_collections[prefix][trap_id].append(collection)
+    else:
+        good_collections = collections
+
+    return good_collections
 
 
 class ProjectFileManager:
