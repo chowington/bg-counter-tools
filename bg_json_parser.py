@@ -489,8 +489,8 @@ def write_collection(collection, metadata, out_csv):
 
         # Write the collection to file.
         out_csv.writerow([collection_id, sample_id, date, date, trap_id,
-                          str(collection['offset_latitude']).zfill(6),
-                          str(collection['offset_longitude']).zfill(6),
+                          '{:.6f}'.format(collection['offset_latitude']),
+                          '{:.6f}'.format(collection['offset_longitude']),
                           '', 'BGCT', attractant, 1, 1, 'Culicidae', 'by size', 'adult',
                           'unknown sex', mos_count])
 
