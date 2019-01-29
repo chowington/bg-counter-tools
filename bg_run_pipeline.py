@@ -168,25 +168,19 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
                 # Define filenames.
                 project_id = '{}_{}'.format(project['prefix'], project['year'])
                 project_dir = './' + project_id + '/'
-                interchange_name = project_id + '.pop'
-                config_name = project_id + '.config'
-                investigation_name = project_id + '.inv'
+                interchange_name = project_id + '_saf.csv'
+                config_name = project_id + '_config.yaml'
 
-                # Create ISA sheets.
-                subprocess.run(['perl', 'PopBio-interchange-format/PopBioWizard.pl', '--file',
-                                interchange_name, '--config', config_name, '--sample',
-                                '--collection', '--species', '--bg-counter', '--skip-backup'])
-
-                # Move sheets to the project directory.
+                # Create the project directory.
                 if not os.path.exists(project_dir):
                     os.makedirs(project_dir)
 
-                perl_outputs = ['a_collection.csv', 'a_species.csv', 's_sample.csv']
-
-                for output in perl_outputs:
-                    os.rename(output, project_dir + output)
-
-                os.rename(investigation_name, project_dir + 'i_investigation.csv')
+                # Create ISA-Tabs.
+                subprocess.run(check=True, args=[
+                    'perl', 'PopBio-interchange-format/PopBioWizard.pl', '--file',
+                    interchange_name, '--config', config_name, '--output-directory', project_dir,
+                    '--isatab'
+                ])
 
                 # Move extra files to the extras folder.
                 os.rename(interchange_name, extras_dir + interchange_name)

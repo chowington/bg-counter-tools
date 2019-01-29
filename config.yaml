@@ -1,0 +1,84 @@
+#
+# fully specified config file
+#
+# contains everything needed to convert SAF files to full ISA-Tab
+#
+
+study_identifier : ${year}-${month}-${prefix}-smart-trap-surveillance
+study_title : Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
+study_submission_date : ${year}
+study_public_release_date : ${year}
+study_description :
+  Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
+
+study_tags :
+  - study_tag : abundance
+    study_tag_term_accession_number : 0001085
+    study_tag_term_source_ref : VBcv
+    
+  - study_tag : ${study_tag}
+    study_tag_term_accession_number : ${study_tag_number}
+    study_tag_term_source_ref : VBcv
+
+study_publications :
+  - study_publication_author_list : ${org_name}
+    study_publication_title : Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
+    study_publication_status : unpublished
+    study_publication_status_term_source_ref : VBcv
+    study_publication_status_term_accession_number : 0000233
+    comments :
+      URL : ${org_url}
+
+study_protocols :
+  - study_protocol_name : COLLECT_BGCT
+    study_protocol_type : BG-Counter trap catch
+    study_protocol_type_term_source_ref : IRO
+    study_protocol_type_term_accession_number : 0000143
+    study_protocol_description :
+      Automatic smart trap with CO2 attractant.
+    study_protocol_uri : https://www.bg-counter.com/
+
+  - study_protocol_name : SPECIES
+    study_protocol_type : by size
+    study_protocol_type_term_source_ref : IRO
+    study_protocol_type_term_accession_number : 0000145
+    study_protocol_description :
+      Identification of mosquitoes by size.
+
+study_contacts :
+  - study_person_last_name : ${contact_last_name}
+    study_person_first_name : ${contact_first_name}
+    study_person_email : ${contact_email}
+    study_person_affiliation : ${org_name}
+    study_person_roles :
+      - study_person_role : investigation agent role
+        study_person_role_term_accession_number : 0000122
+        study_person_role_term_source_ref : OBI
+
+
+
+# list the species expected to be identified
+# and their VBsp:nnnnnnn ontology term accessions
+study_species : 
+  Culicidae : VBsp:0003818
+
+#
+# list the expected sexes, with ontology term accessions
+#
+study_sexes :
+  unknown sex : VBcv:0001048
+
+#
+# list the expected developmental stages, with ontology term accessions
+#
+study_developmental_stages :
+  adult : IDOMAL:0000655
+
+#
+# list any ontology terms used in the data sheet
+# for location_{country,ADM1,ADM2,description}, attractant
+# also the 'pool' term must be provided
+#
+study_terms :
+  pool : EFO:0000663
+  carbon dioxide : IRO:0000035

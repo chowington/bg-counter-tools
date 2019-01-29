@@ -803,7 +803,6 @@ class ProjectFileManager:
     Public methods:
         update_dates
         write_config
-        write_investigation
         close
     """
 
@@ -817,7 +816,7 @@ class ProjectFileManager:
         self.prefix = prefix
         self.year = year
 
-        csv_filename = '{}_{}.pop'.format(prefix, year)
+        csv_filename = '{}_{}_saf.csv'.format(prefix, year)
         self.writer = CSVWriter(csv_filename)
         self.writerow = self.writer.writerow
 
@@ -840,33 +839,17 @@ class ProjectFileManager:
     def write_config(self):
         """Write the config file from a template.
 
-        The config file is intended to be passed to PopBioWizard.pl
+        The YAML-format config file is intended to be passed to PopBioWizard.pl
         further down the pipeline.
-        """
-        template_path = 'config.tpl'
-        config_path = '{}_{}.config'.format(self.prefix, self.year)
-
-        with open(template_path) as template_f, open(config_path, 'w') as config_f:
-            template = Template(template_f.read())
-            config_text = template.substitute(prefix=self.prefix, year=self.year,
-                                              month=str(self.month).zfill(2))
-            config_f.write(config_text)
-
-    def write_investigation(self):
-        """Write the investigation sheet from a template.
-
-        The investigation sheet is one of the four ISA-Tab sheets.  The
-        other three are created by PopBioWizard.pl.
         """
         data = get_provider_metadata(prefix=self.prefix)
 
-        template_path = 'investigation.tpl'
-        inv_path = '{}_{}.inv'.format(self.prefix, self.year)
+        template_path = 'config.yaml'
+        config_path = '{}_{}_config.yaml'.format(self.prefix, self.year)
 
-        with open(template_path) as template_f, open(inv_path, 'w') as inv_f:
+        with open(template_path) as template_f, open(config_path, 'w') as config_f:
             template = Template(template_f.read())
-
-            inv_text = template.substitute(
+            config_text = template.substitute(
                 prefix=self.prefix, year=self.year, month=str(self.month).zfill(2),
                 start_date=self.first_date, end_date=self.last_date, org_name=data['org_name'],
                 org_email=data['org_email'], org_url=data['org_url'],
@@ -875,7 +858,7 @@ class ProjectFileManager:
                 study_tag=data['study_tag'], study_tag_number=data['study_tag_number']
             )
 
-            inv_f.write(inv_text)
+            config_f.write(config_text)
 
     def close(self):
         """Close the data file and write other files if necessary.
@@ -883,12 +866,11 @@ class ProjectFileManager:
         This function calls self.writer's close function, which checks
         to see whether any data was written to the data file and deletes
         the file if not.  If data was written, this function then writes
-        the config and investigation files and returns a dict containing
-        the project information.  Otherwise it returns None.
+        the config file and returns a dict containing the project
+        information.  Otherwise it returns None.
         """
         if self.writer.close():
             self.write_config()
-            self.write_investigation()
 
             return {'prefix': self.prefix, 'year': self.year}
 
