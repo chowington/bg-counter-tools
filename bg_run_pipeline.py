@@ -151,6 +151,10 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
             if not os.path.isfile(json_output):
                 download_data(stdscr=None, api_key=provider['api_key'], start_time=start_time,
                               end_time=end_time, output=json_output)
+            else:
+                print('Notice: Using raw trap data from file {}.\nContinuing in 5 seconds.'
+                      .format(json_output))
+                time.sleep(5)
 
             # Add any new traps to the database.
             update_traps(api_key=provider['api_key'], file=[json_output])
