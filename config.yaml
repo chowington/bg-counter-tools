@@ -38,7 +38,7 @@ study_protocols :
       Automatic smart trap with CO2 attractant.
     study_protocol_uri : https://www.bg-counter.com/
 
-  - study_protocol_name : SPECIES
+  - study_protocol_name : SIZE
     study_protocol_type : by size
     study_protocol_type_term_source_ref : IRO
     study_protocol_type_term_accession_number : 0000145

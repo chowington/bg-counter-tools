@@ -491,7 +491,7 @@ def write_collection(collection, metadata, out_csv):
         out_csv.writerow([collection_id, sample_id, date, date, trap_id,
                           '{:.6f}'.format(collection['offset_latitude']),
                           '{:.6f}'.format(collection['offset_longitude']),
-                          '', 'COLLECT_BGCT', attractant, 1, 1, 'Culicidae', 'by size', 'adult',
+                          '', 'COLLECT_BGCT', attractant, 1, 1, 'Culicidae', 'SIZE', 'adult',
                           'unknown sex', mos_count])
 
         return True
