@@ -30,7 +30,7 @@ CREATE TABLE ordinals (
     prefix TEXT NOT NULL REFERENCES providers ON UPDATE CASCADE,
     year INTEGER NOT NULL CONSTRAINT valid_year CHECK (year >= 1900),
     ordinal INTEGER DEFAULT 0 NOT NULL CONSTRAINT valid_ordinal CHECK (ordinal >= 0),
-
+    projects INTEGER DEFAULT 0 NOT NULL CONSTRAINT valid_projects CHECK (projects >= 0),
     PRIMARY KEY (prefix, year)
 );
 

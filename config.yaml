@@ -4,7 +4,7 @@
 # contains everything needed to convert SAF files to full ISA-Tab
 #
 
-study_identifier : ${year}-${month}-${prefix}-smart-trap-surveillance
+study_identifier : ${year}-${prefix}-smart-trap-surveillance-${project_number}
 study_title : Mosquito surveillance from ${start_date} to ${end_date} by BG-Counter smart traps owned by ${org_name}.
 study_submission_date : ${year}
 study_public_release_date : ${year}

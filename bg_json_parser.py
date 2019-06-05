@@ -151,7 +151,13 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                                     out_csv[prefix] = {}
 
                                 if year not in out_csv[prefix]:
-                                    out_csv[prefix][year] = ProjectFileManager(prefix, year)
+                                    if year in curr_metadata['ordinals']:
+                                        project_number = curr_metadata['ordinals'][year]['projects'] + 1
+                                    else:
+                                        project_number = 1
+                                    out_csv[prefix][year] = ProjectFileManager(
+                                        prefix, year, project_number
+                                    )
 
                                 curr_csv = out_csv[prefix][year]
 
@@ -185,9 +191,11 @@ def parse_json(files, output='interchange.pop', split_years=False, preserve_meta
                         project_info = csv_writer.close()
 
                         # Store the info for the valid projects
-                        # that were created.
+                        # that were created. Increment the project
+                        # number.
                         if project_info:
                             projects.append(project_info)
+                            metadata[prefix]['ordinals'][year]['projects'] += 1
             else:
                 out_csv.close()
 
@@ -464,10 +472,10 @@ def write_collection(collection, metadata, out_csv):
 
         # If no ordinal exists for this year, make a new one.
         if year not in metadata['ordinals']:
-            metadata['ordinals'][year] = 0
+            metadata['ordinals'][year] = {'ordinal': 0, 'projects': 0}
 
         # Increment the ordinal and store it.
-        ordinal = metadata['ordinals'][year] = metadata['ordinals'][year] + 1
+        ordinal = metadata['ordinals'][year]['ordinal'] = metadata['ordinals'][year]['ordinal'] + 1
 
         # The ordinal string must have a leading zero, so we're giving
         # it a length that probably won't be exceeded for a year's worth
@@ -548,10 +556,14 @@ def get_trap_metadata(cur, trap_id):
             })
 
     # Get the ordinals associated with the prefix.
-    sql = 'SELECT year, ordinal FROM ordinals WHERE prefix = %s'
+    sql = 'SELECT year, ordinal, projects FROM ordinals WHERE prefix = %s'
     cur.execute(sql, (prefix,))
 
-    metadata[prefix]['ordinals'] = {row['year']: row['ordinal'] for row in cur.fetchall()}
+    for row in cur.fetchall():
+        metadata[prefix]['ordinals'][row['year']] = {
+            'ordinal': row['ordinal'],
+            'projects': row['projects']
+        }
 
     return metadata
 
@@ -587,10 +599,10 @@ def update_metadata(cur, metadata):
     """
     for prefix, trapset in metadata.items():
         # Update the ordinals associated with the prefix.
-        sql = ('INSERT INTO ordinals VALUES (%s, %s, %s) '
+        sql = ('INSERT INTO ordinals VALUES (%s, %s, %s, %s) '
                'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
-        for year, ordinal in trapset['ordinals'].items():
-            cur.execute(sql, (prefix, year, ordinal))
+        for year, ordinals in trapset['ordinals'].items():
+            cur.execute(sql, (prefix, year, ordinals['ordinal'], ordinals['projects']))
 
         for trap_id, locations in trapset['traps'].items():
             # Check the trap to make sure it still exists
@@ -806,15 +818,18 @@ class ProjectFileManager:
         close
     """
 
-    def __init__(self, prefix, year):
+    def __init__(self, prefix, year, project_number):
         """Initialize the instance.
 
         prefix -- The prefix of the provider that this project's data
             comes from.
         year -- The year that this project's data was collected.
+        project_number -- An integer signifying which project this is
+            this year for this provider (ie, 1st, 3rd, nth).
         """
         self.prefix = prefix
         self.year = year
+        self.project_number = project_number
 
         csv_filename = '{}_{}_saf.csv'.format(prefix, year)
         self.writer = CSVWriter(csv_filename)
@@ -855,7 +870,8 @@ class ProjectFileManager:
                 org_email=data['org_email'], org_url=data['org_url'],
                 contact_first_name=data['contact_first_name'],
                 contact_last_name=data['contact_last_name'], contact_email=data['contact_email'],
-                study_tag=data['study_tag'], study_tag_number=data['study_tag_number']
+                study_tag=data['study_tag'], study_tag_number=data['study_tag_number'],
+                project_number=self.project_number
             )
 
             config_f.write(config_text)
