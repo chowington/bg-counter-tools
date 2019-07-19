@@ -65,6 +65,10 @@ def parse_args():
     parser.add_argument('--preserve-metadata', action='store_true',
                         help="Don't change the metadata in the database other than adding new "
                              "traps, which is required for the pipeline to work.")
+    parser.add_argument('--rerun', action='store_true',
+                        help='Run pipeline even for providers that have already been run recently.'
+                             ' WARNING: This does not revert any database changes that were made'
+                             ' that will affect the output.')
 
     mutex_group = parser.add_mutually_exclusive_group()
     mutex_group.add_argument('-i', '--include', nargs='+',
@@ -80,7 +84,7 @@ def parse_args():
 
 
 def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
-                 preserve_metadata=False):
+                 preserve_metadata=False, rerun=False):
     """Run the full BG-Counter Tools pipeline.
 
     Optional arguments:
@@ -138,10 +142,10 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
 
         # Continue if we didn't already get data
         # from this provider today.
-        if end_time > start_time:
+        if end_time > start_time or rerun:
             # Send a message if we got data from this provider
             # within the last month.
-            if end_time - start_time < dt.timedelta(days=31):
+            if end_time - start_time < dt.timedelta(days=31) and not rerun:
                 print("Notice: Last download for prefix '{}' occurred less than a month ago: {}."
                       "\nContinuing in 5 seconds."
                       .format(provider['prefix'], provider['last_download']))
