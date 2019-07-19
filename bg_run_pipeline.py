@@ -193,6 +193,9 @@ def run_pipeline(include=None, exclude=None, start_time=None, end_time=None,
             # Move the JSON output file to the extras folder.
             os.rename(json_output, extras_dir + json_output)
 
+        else:
+            print('Skipping provider {} - data already pulled today.'.format(provider['prefix']))
+
 
 @com.run_with_connection
 def get_providers(cur):
