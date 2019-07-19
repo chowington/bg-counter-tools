@@ -600,7 +600,8 @@ def update_metadata(cur, metadata):
     for prefix, trapset in metadata.items():
         # Update the ordinals associated with the prefix.
         sql = ('INSERT INTO ordinals VALUES (%s, %s, %s, %s) '
-               'ON CONFLICT (prefix, year) DO UPDATE SET ordinal = EXCLUDED.ordinal')
+               'ON CONFLICT (prefix, year) '
+               'DO UPDATE SET (ordinal, projects) = (EXCLUDED.ordinal, EXCLUDED.projects)')
         for year, ordinals in trapset['ordinals'].items():
             cur.execute(sql, (prefix, year, ordinals['ordinal'], ordinals['projects']))
 
